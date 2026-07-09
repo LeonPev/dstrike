@@ -423,12 +423,14 @@ docker compose logs viz | grep -Ei "rviz|vnc|websockify|xvfb|fluxbox"
 Confirm the visualization topics are present:
 
 ```bash
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic list | grep -E "/drone/odom|/sim/ground_truth/odom|/tf|/sim/scenario_markers|/sim/camera/front/image_raw"'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic list | grep -E "/drone/odom|/sim/ground_truth/odom|/tf|/sim/scenario_markers|/sim/drone_markers|/sim/camera/front/image_raw"'
 ```
 
 The RViz2 config at `config/drone.rviz` uses fixed frame `world` and loads
 displays for TF, MAVLink-derived odometry, MuJoCo ground-truth odometry,
-scenario markers, and the front camera image stream.
+scenario markers, a simple drone body marker, and the front camera image
+stream. The MuJoCo model also keeps the unpowered quad in contact with the
+ground plane so the pose remains visible before takeoff.
 
 After the browser check succeeds, finish the ticket with:
 

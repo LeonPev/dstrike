@@ -34,7 +34,7 @@ Verification checklist:
 make build
 make up-viz
 docker compose logs viz | grep -Ei "rviz|vnc|websockify|xvfb|fluxbox"
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic list | grep -E "/drone/odom|/sim/ground_truth/odom|/tf|/sim/scenario_markers|/sim/camera/front/image_raw"'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic list | grep -E "/drone/odom|/sim/ground_truth/odom|/tf|/sim/scenario_markers|/sim/drone_markers|/sim/camera/front/image_raw"'
 git diff --check
 ```
 

@@ -9,10 +9,12 @@ from typing import Any, Iterable
 
 
 WORLD_FRAME = "world"
+ODOM_FRAME = "odom"
 BASE_LINK_FRAME = "base_link"
 GROUND_TRUTH_ODOM_TOPIC = "/sim/ground_truth/odom"
 TF_TOPIC = "/tf"
 SCENARIO_MARKERS_TOPIC = "/sim/scenario_markers"
+DRONE_MARKERS_TOPIC = "/sim/drone_markers"
 DEFAULT_PUBLISH_RATE_HZ = 10.0
 ROTOR_SITE_NAMES = (
     "rotor_front_left",
@@ -35,6 +37,16 @@ class FrameTransform:
     child_frame_id: str
     translation_xyz: tuple[float, float, float]
     rotation_xyzw: tuple[float, float, float, float]
+
+
+@dataclass(frozen=True)
+class DroneMarkerSpec:
+    namespace: str
+    marker_id: int
+    shape: str
+    position_xyz: tuple[float, float, float]
+    scale_xyz: tuple[float, float, float]
+    color_rgba: tuple[float, float, float, float]
 
 
 def ground_truth_odom_fields(state: Any) -> GroundTruthOdomFields:
@@ -60,6 +72,56 @@ def rotor_site_transforms_from_quad(quad: Any) -> tuple[FrameTransform, ...]:
             )
         )
     return tuple(transforms)
+
+
+def drone_marker_specs(
+    rotor_positions: Iterable[Iterable[float]],
+) -> tuple[DroneMarkerSpec, ...]:
+    """Return base_link-relative geometry for a simple RViz quad body."""
+    specs = [
+        DroneMarkerSpec(
+            namespace="drone_body",
+            marker_id=0,
+            shape="cube",
+            position_xyz=(0.0, 0.0, 0.0),
+            scale_xyz=(0.22, 0.16, 0.08),
+            color_rgba=(0.08, 0.10, 0.12, 1.0),
+        ),
+        DroneMarkerSpec(
+            namespace="drone_body",
+            marker_id=1,
+            shape="cube",
+            position_xyz=(0.0, 0.0, 0.0),
+            scale_xyz=(0.55, 0.035, 0.035),
+            color_rgba=(0.65, 0.72, 0.78, 1.0),
+        ),
+        DroneMarkerSpec(
+            namespace="drone_body",
+            marker_id=2,
+            shape="cube",
+            position_xyz=(0.0, 0.0, 0.0),
+            scale_xyz=(0.035, 0.55, 0.035),
+            color_rgba=(0.65, 0.72, 0.78, 1.0),
+        ),
+    ]
+    rotor_colors = (
+        (0.05, 0.35, 0.95, 0.95),
+        (0.95, 0.15, 0.10, 0.95),
+        (0.95, 0.15, 0.10, 0.95),
+        (0.05, 0.35, 0.95, 0.95),
+    )
+    for index, position in enumerate(rotor_positions):
+        specs.append(
+            DroneMarkerSpec(
+                namespace="drone_rotors",
+                marker_id=index,
+                shape="cylinder",
+                position_xyz=vector3_tuple(position),
+                scale_xyz=(0.14, 0.14, 0.02),
+                color_rgba=rotor_colors[index % len(rotor_colors)],
+            )
+        )
+    return tuple(specs)
 
 
 def vector3_tuple(values: Iterable[float]) -> tuple[float, float, float]:
@@ -129,12 +191,21 @@ class SimVisualizationPublisher:
             SCENARIO_MARKERS_TOPIC,
             marker_qos,
         )
+        self._drone_marker_pub = self._node.create_publisher(
+            MarkerArray,
+            DRONE_MARKERS_TOPIC,
+            marker_qos,
+        )
         self._site_transforms = rotor_site_transforms_from_quad(quad)
+        self._drone_marker_specs = drone_marker_specs(
+            site_transform.translation_xyz for site_transform in self._site_transforms
+        )
         self._publish_period_s = 1.0 / publish_rate_hz
         self._last_publish_monotonic_s: float | None = None
         self._node.get_logger().info(
             "publishing simulation visualization topics "
-            f"{GROUND_TRUTH_ODOM_TOPIC}, {TF_TOPIC}, {SCENARIO_MARKERS_TOPIC}"
+            f"{GROUND_TRUTH_ODOM_TOPIC}, {TF_TOPIC}, {SCENARIO_MARKERS_TOPIC}, "
+            f"{DRONE_MARKERS_TOPIC}"
         )
 
     def close(self) -> None:
@@ -164,6 +235,7 @@ class SimVisualizationPublisher:
         self._odom_pub.publish(self._build_odometry(stamp, fields))
         self._tf_pub.publish(self._build_tf_message(stamp, fields))
         self._marker_pub.publish(self._build_scenario_markers(stamp))
+        self._drone_marker_pub.publish(self._build_drone_markers(stamp))
         self._rclpy.spin_once(self._node, timeout_sec=0.0)
 
     def _build_odometry(self, stamp: Any, fields: GroundTruthOdomFields) -> Any:
@@ -185,6 +257,13 @@ class SimVisualizationPublisher:
 
     def _build_tf_message(self, stamp: Any, fields: GroundTruthOdomFields) -> Any:
         transforms = [
+            self._build_transform(
+                stamp=stamp,
+                parent_frame_id=WORLD_FRAME,
+                child_frame_id=ODOM_FRAME,
+                translation_xyz=(0.0, 0.0, 0.0),
+                rotation_xyzw=(0.0, 0.0, 0.0, 1.0),
+            ),
             self._build_transform(
                 stamp=stamp,
                 parent_frame_id=WORLD_FRAME,
@@ -241,6 +320,42 @@ class SimVisualizationPublisher:
         marker_array = self._marker_array_type()
         marker_array.markers = markers
         return marker_array
+
+    def _build_drone_markers(self, stamp: Any) -> Any:
+        markers = [
+            self._drone_shape_marker(stamp, spec) for spec in self._drone_marker_specs
+        ]
+        marker_array = self._marker_array_type()
+        marker_array.markers = markers
+        return marker_array
+
+    def _drone_shape_marker(self, stamp: Any, spec: DroneMarkerSpec) -> Any:
+        from visualization_msgs.msg import Marker
+
+        marker = Marker()
+        marker.header.stamp = stamp
+        marker.header.frame_id = BASE_LINK_FRAME
+        marker.ns = spec.namespace
+        marker.id = spec.marker_id
+        marker.action = Marker.ADD
+        if spec.shape == "cube":
+            marker.type = Marker.CUBE
+        elif spec.shape == "cylinder":
+            marker.type = Marker.CYLINDER
+        else:
+            raise ValueError(f"unsupported drone marker shape: {spec.shape}")
+        marker.pose.position.x = spec.position_xyz[0]
+        marker.pose.position.y = spec.position_xyz[1]
+        marker.pose.position.z = spec.position_xyz[2]
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = spec.scale_xyz[0]
+        marker.scale.y = spec.scale_xyz[1]
+        marker.scale.z = spec.scale_xyz[2]
+        marker.color.r = spec.color_rgba[0]
+        marker.color.g = spec.color_rgba[1]
+        marker.color.b = spec.color_rgba[2]
+        marker.color.a = spec.color_rgba[3]
+        return marker
 
     def _marker_base(self, stamp: Any, namespace: str, marker_id: int) -> Any:
         from visualization_msgs.msg import Marker

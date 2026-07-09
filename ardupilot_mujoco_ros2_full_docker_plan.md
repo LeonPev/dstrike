@@ -447,6 +447,7 @@ Fixed Frame: world
 TF: /tf
 Odometry: /drone/odom
 Odometry: /sim/ground_truth/odom
+MarkerArray: /sim/drone_markers
 MarkerArray: /sim/scenario_markers
 Image: /sim/camera/front/image_raw
 ```
@@ -456,10 +457,10 @@ Image: /sim/camera/front/image_raw
 ```bash
 make up-viz
 docker compose logs viz | grep -Ei "rviz|vnc|websockify"
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic list | grep -E "/drone/odom|/sim/ground_truth/odom|/tf|/sim/scenario_markers"'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic list | grep -E "/drone/odom|/sim/ground_truth/odom|/tf|/sim/drone_markers|/sim/scenario_markers"'
 ```
 
-Done when `http://localhost:6080/vnc.html?autoconnect=true&resize=scale` opens locally in the Mac browser, shows an RViz2 desktop, and RViz2 displays live drone pose/TF/scenario markers.
+Done when `http://localhost:6080/vnc.html?autoconnect=true&resize=scale` opens locally in the Mac browser, shows an RViz2 desktop, and RViz2 displays live drone pose/TF, a visible drone body marker, and scenario markers.
 
 ---
 

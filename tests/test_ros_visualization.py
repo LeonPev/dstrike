@@ -8,6 +8,7 @@ import numpy as np
 from src.physics.ros_visualization import (
     BASE_LINK_FRAME,
     FrameTransform,
+    drone_marker_specs,
     ground_truth_odom_fields,
     quaternion_wxyz_to_xyzw,
     vector3_tuple,
@@ -68,3 +69,22 @@ def test_frame_transform_records_base_link_child_frame() -> None:
 
     assert transform.parent_frame_id == "base_link"
     assert transform.child_frame_id == "rotor_front_left"
+
+
+def test_drone_marker_specs_include_body_arms_and_rotors() -> None:
+    specs = drone_marker_specs(
+        (
+            (0.18, 0.18, 0.02),
+            (0.18, -0.18, 0.02),
+            (-0.18, 0.18, 0.02),
+            (-0.18, -0.18, 0.02),
+        )
+    )
+
+    assert len(specs) == 7
+    assert specs[0].namespace == "drone_body"
+    assert specs[0].shape == "cube"
+    assert specs[0].scale_xyz == (0.22, 0.16, 0.08)
+    assert specs[3].namespace == "drone_rotors"
+    assert specs[3].shape == "cylinder"
+    assert specs[3].position_xyz == (0.18, 0.18, 0.02)

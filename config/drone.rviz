@@ -8,6 +8,7 @@ Panels:
         - /TF1
         - /Drone Odometry1
         - /Ground Truth Odometry1
+        - /Drone Body1
         - /Scenario Markers1
         - /Front Camera1
       Splitter Ratio: 0.5
@@ -123,6 +124,18 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /sim/ground_truth/odom
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Drone Body
+      Namespaces:
+        {}
+      Topic:
+        Depth: 10
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sim/drone_markers
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true

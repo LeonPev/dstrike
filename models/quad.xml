@@ -15,7 +15,8 @@
   <worldbody>
     <light name="key" pos="0 -3 5" dir="0 1 -1" diffuse="0.8 0.8 0.8"/>
     <geom name="visual_ground" type="plane" size="5 5 0.05"
-          material="ground_mat" contype="0" conaffinity="0"/>
+          material="ground_mat" contype="1" conaffinity="1"
+          friction="1.0 0.005 0.0001"/>
     <geom name="visual_camera_target" type="box" pos="2.0 0 0.35"
           size="0.18 0.18 0.35" material="camera_target"
           contype="0" conaffinity="0"/>
@@ -25,11 +26,14 @@
       <inertial pos="0 0 0" mass="1.2" diaginertia="0.018 0.018 0.030"/>
 
       <geom name="body" type="box" size="0.080 0.060 0.025"
-            material="body_dark" contype="0" conaffinity="0"/>
+            material="body_dark" contype="1" conaffinity="1"
+            friction="1.0 0.005 0.0001"/>
       <geom name="arm_x" type="capsule" fromto="-0.24 0 0 0.24 0 0"
-            size="0.010" material="arm_light" contype="0" conaffinity="0"/>
+            size="0.010" material="arm_light" contype="1" conaffinity="1"
+            friction="1.0 0.005 0.0001"/>
       <geom name="arm_y" type="capsule" fromto="0 -0.24 0 0 0.24 0"
-            size="0.010" material="arm_light" contype="0" conaffinity="0"/>
+            size="0.010" material="arm_light" contype="1" conaffinity="1"
+            friction="1.0 0.005 0.0001"/>
 
       <site name="rotor_front_left" pos="0.18 0.18 0.02"
             type="sphere" size="0.025" material="rotor_blue"/>
