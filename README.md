@@ -538,3 +538,91 @@ docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash && pytho
 docker compose logs sitl-json physics ros2
 make down
 ```
+
+## Observability and artifacts
+
+DFD-015 adds bounded observability targets for debugging the Docker-only stack
+without GUI tools. The repository `artifacts/` directory is mounted into every
+Compose service at `/workspace/artifacts`.
+
+Artifact layout:
+
+```text
+artifacts/ardupilot/  ArduPilot SITL state and output from sim_vehicle.py
+artifacts/rosbags/    ROS 2 bag recordings
+artifacts/test-logs/  topic, bag, and Compose command logs
+```
+
+Start the browser-viewable stack:
+
+```bash
+make up-viz
+```
+
+List live ROS 2 topics and tee the output to `artifacts/test-logs/`:
+
+```bash
+make topic-list
+```
+
+Expected required topics:
+
+```text
+/drone/odom
+/sim/ground_truth/odom
+/tf
+/sim/scenario_markers
+```
+
+The camera topic is optional and appears when `CAMERA_ENABLED=true`:
+
+```text
+/sim/camera/front/image_raw
+```
+
+Measure a bounded topic rate sample:
+
+```bash
+make topic-hz TOPIC=/drone/odom
+```
+
+Success prints:
+
+```text
+PASS: DFD-015 topic rate probe passed
+```
+
+Record a short ROS bag. The recorder uses MCAP when the image has the
+`rosbag2_storage_mcap` plugin; otherwise it falls back to the default ROS 2 bag
+storage.
+
+```bash
+make bag-record DURATION=10
+ls artifacts/
+find artifacts -maxdepth 3 -type f | sort
+```
+
+Success prints:
+
+```text
+PASS: DFD-015 bag record artifacts passed
+```
+
+Capture Compose logs into `artifacts/test-logs/` while following the running
+services:
+
+```bash
+make logs
+```
+
+For a non-following snapshot:
+
+```bash
+make logs LOG_FLAGS=
+```
+
+Manual DFD-015 pass condition:
+
+```bash
+echo "PASS: DFD-015 observability artifacts passed"
+```

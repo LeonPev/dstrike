@@ -34,6 +34,9 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
         ros-humble-rosgraph-msgs \
         ros-humble-rviz2 \
         ros-humble-image-transport \
+        ros-humble-ros2bag \
+        ros-humble-rosbag2-storage-default-plugins \
+        ros-humble-rosbag2-storage-mcap \
         ros-humble-tf2-tools \
         xvfb \
         x11vnc \

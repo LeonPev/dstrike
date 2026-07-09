@@ -12,9 +12,13 @@ x-sim-common: &sim-common
     - type: bind
       source: .
       target: /workspace
+    - type: bind
+      source: ./artifacts
+      target: /workspace/artifacts
   environment:
     ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
     ARDUPILOT_REF: ${ARDUPILOT_REF:-92b0cd788ec29406f26c6f9c31d5ceedbd1cc538}
+    ARTIFACTS_DIR: /workspace/artifacts
     SCENARIO: ${SCENARIO:-landing_pad}
     CAMERA_ENABLED: ${CAMERA_ENABLED:-true}
     CAMERA_NAME: ${CAMERA_NAME:-front_cam}
@@ -78,7 +82,10 @@ services:
         echo "Resolved $${ROS2_HOST} to $${ROS2_IP} for ArduPilot numeric IPv4"
         echo "Explicit MAVLink route: --out=udp:$${ROS2_IP}:14550"
         echo "Direct SITL serial0 route: --serial0=udpclient:$${ROS2_IP}:14550"
-        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --out=udp:$${ROS2_IP}:14550 --sitl-instance-args=--serial0=udpclient:$${ROS2_IP}:14550
+        ARDUPILOT_ARTIFACT_DIR=/workspace/artifacts/ardupilot/sitl-baseline
+        mkdir -p "$${ARDUPILOT_ARTIFACT_DIR}"
+        echo "ArduPilot SITL artifacts: $${ARDUPILOT_ARTIFACT_DIR}"
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --use-dir="$${ARDUPILOT_ARTIFACT_DIR}" --out=udp:$${ROS2_IP}:14550 --sitl-instance-args=--serial0=udpclient:$${ROS2_IP}:14550
 
   sitl-json:
     <<: *sim-common
@@ -111,7 +118,10 @@ services:
         echo "ArduPilot child output inherited via SITL_RITW_TERMINAL=bash"
         echo "ROS 2 MAVLink stream params: --add-param-file=/workspace/config/ros2_mavlink_streams.parm"
         echo "Direct SITL serial0 UDP sink: --serial0=udpclient:$${ROS2_IP}:14550"
-        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --model "JSON:$${PHYSICS_IP}" --add-param-file=/workspace/config/ros2_mavlink_streams.parm --sitl-instance-args=--serial0=udpclient:$${ROS2_IP}:14550
+        ARDUPILOT_ARTIFACT_DIR=/workspace/artifacts/ardupilot/sitl-json
+        mkdir -p "$${ARDUPILOT_ARTIFACT_DIR}"
+        echo "ArduPilot SITL artifacts: $${ARDUPILOT_ARTIFACT_DIR}"
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --use-dir="$${ARDUPILOT_ARTIFACT_DIR}" --model "JSON:$${PHYSICS_IP}" --add-param-file=/workspace/config/ros2_mavlink_streams.parm --sitl-instance-args=--serial0=udpclient:$${ROS2_IP}:14550
 
   viz:
     <<: *sim-common
