@@ -1,17 +1,18 @@
 # dstrike
 
-Headless, browser-viewable drone simulation stack for macOS using Docker
-Desktop for Mac.
+Docker Desktop for Mac drone simulation stack. It runs ArduPilot SITL, MuJoCo
+physics, a ROS 2 MAVLink bridge, and RViz2/noVNC inside Docker.
 
-## One-command Docker Workflow
+No host ROS 2, ArduPilot, MuJoCo, RViz2, Python package, or alternate container
+runtime install is required.
 
-DFD-016 is the happy path for a fresh macOS clone. The only required host
-software is Docker Desktop for Mac, including its Docker Engine and Docker
-Compose plugin, plus the macOS shell, Make, and a browser. Do not install host
-ROS 2, ArduPilot, MuJoCo, RViz2, noVNC, or Python packages for this project.
+## Requirements
 
-Create local defaults, build the shared image, and start the full
-browser-viewable stack:
+- macOS with Docker Desktop for Mac
+- Docker Engine and Docker Compose plugin bundled with Docker Desktop
+- Make, a shell, and a browser
+
+## Quick Start
 
 ```bash
 cp .env.example .env
@@ -19,744 +20,152 @@ make build
 make up-viz
 ```
 
-Open RViz2 through noVNC in a Mac browser:
+Open the browser viewer:
 
 ```text
 http://localhost:6080/vnc.html?autoconnect=true&resize=scale
 ```
 
-The RViz2 desktop runs inside Docker and is streamed through noVNC on
-`127.0.0.1:6080` by default. Change `NOVNC_PORT` in `.env` if port `6080` is
-already in use.
+Stop everything:
 
-With the browser stack running, live topics should include:
+```bash
+make down
+```
+
+## Smoke Test
+
+Run the full headless takeoff test:
+
+```bash
+make test-e2e
+```
+
+Expected success line:
 
 ```text
+E2E PASS: heartbeat, arm, takeoff, odom altitude threshold reached
+```
+
+`make test-e2e` resets the Compose stack, starts the MuJoCo/SITL/ROS 2 services,
+runs the takeoff test, and shuts the stack down. Run `make up-viz` again when
+you want the browser viewer.
+
+## What Runs
+
+| Service | Purpose | Ports |
+| --- | --- | --- |
+| `sitl-json` | ArduCopter SITL in JSON external-physics mode | Internal UDP to `physics:9002` and `ros2:14550` |
+| `physics` | MuJoCo physics, scenario markers, ground-truth odometry, camera publishing | Internal UDP `9002` |
+| `ros2` | ROS 2 MAVLink bridge and command topics | Internal UDP `14550` |
+| `viz` | RViz2 desktop streamed through noVNC | Host `127.0.0.1:6080` to container `6080/tcp` |
+
+Only noVNC is published to the Mac host by default.
+
+## Expected Topics
+
+```text
+/drone/heartbeat
 /drone/odom
 /sim/ground_truth/odom
 /tf
 /sim/scenario_markers
+/sim/drone_markers
 /sim/camera/front/image_raw
+/sim/camera/front/camera_info
 ```
 
-Run the end-to-end smoke test and cleanup:
-
-```bash
-make test-e2e
-make down
-```
-
-`make test-e2e` intentionally resets the Compose project, starts the headless
-MuJoCo/SITL/ROS 2 stack, arms, commands takeoff, checks `/drone/odom`, and
-shuts the smoke-test stack down. Run `make up-viz` again after the smoke test
-when you want the browser viewer running.
-
-Expected DFD-016 success signals:
-
-```text
-Browser: RViz2 shows live TF, odometry, scenario markers, and camera topics.
-CLI: E2E PASS: heartbeat, arm, takeoff, odom altitude threshold reached
-PASS: DFD-016 one-command Docker workflow documented
-```
-
-After the browser and CLI checks pass, finish the ticket with:
-
-```bash
-echo "PASS: DFD-016 one-command Docker workflow documented"
-```
-
-### Expected services and ports
-
-| Service | Started by | Purpose | Ports |
-| --- | --- | --- | --- |
-| `sitl-json` | `make up-viz`, `make test-e2e` | ArduCopter SITL in JSON external-physics mode | Internal JSON UDP to `physics:9002`; internal MAVLink UDP to `ros2:14550` |
-| `physics` | `make up-viz`, `make test-e2e` | MuJoCo quad physics, ROS 2 ground-truth state, scenario markers, optional camera publishing | Internal UDP `9002` |
-| `ros2` | `make up-viz`, `make test-e2e` | Builds and runs the MAVLink bridge node | Internal UDP `14550` |
-| `viz` | `make up-viz` | RViz2 desktop streamed through noVNC | Host `127.0.0.1:6080` to container `6080/tcp` |
-
-The full browser stack is Docker-only. No ROS 2 DDS, MAVLink, MuJoCo, or
-ArduPilot ports are published to the Mac host except noVNC on `6080`.
-
-### Common failure checks
-
-No heartbeat:
-
-```bash
-docker compose logs sitl-json ros2 | grep -Ei "heartbeat|14550|serial0|mavlink|Resolved"
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /drone/heartbeat --once'
-```
-
-No JSON frames:
-
-```bash
-docker compose logs sitl-json physics | grep -E "JSON received|frame_count|pwm|thrust|Resolved physics"
-```
-
-EKF unhealthy:
-
-```bash
-docker compose logs sitl-json | grep -Ei "ekf|prearm|ahrs|unhealthy"
-make topic-hz TOPIC=/sim/ground_truth/odom
-make topic-hz TOPIC=/drone/odom
-```
-
-ROS 2 node not visible:
-
-```bash
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 node list'
-docker compose logs ros2 | grep -Ei "colcon|mavlink_bridge|error|traceback"
-```
-
-RViz2 opens but no topics are visible:
+Check the live topic set:
 
 ```bash
 make topic-list
-docker compose logs viz | grep -Ei "rviz|ros|vnc|websockify|error"
+```
+
+## Common Commands
+
+```bash
+make help
+make preflight
+make build
+make up-viz
+make test-e2e
+make topic-list
+make topic-hz TOPIC=/drone/odom
+make bag-record DURATION=10
+make logs LOG_FLAGS=
+make down
+```
+
+Artifacts are written under:
+
+```text
+artifacts/ardupilot/
+artifacts/rosbags/
+artifacts/test-logs/
+```
+
+## Configuration
+
+Edit `.env` after copying `.env.example`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `NOVNC_PORT` | `6080` | Browser viewer port on `127.0.0.1` |
+| `SCENARIO` | `landing_pad` | Scenario: `empty_world`, `landing_pad`, or `obstacle_course` |
+| `CAMERA_ENABLED` | `true` | Publish the MuJoCo front camera topics |
+| `CAMERA_WIDTH` / `CAMERA_HEIGHT` | `640` / `480` | Camera image size |
+| `CAMERA_FPS` | `10` | Camera publish rate |
+| `ROS_DOMAIN_ID` | `42` | ROS 2 domain used inside containers |
+| `ARDUPILOT_REF` | pinned SHA in `.env.example` | ArduPilot commit baked into the image |
+
+Restart after config changes:
+
+```bash
+make down
+make up-viz
+```
+
+## Troubleshooting
+
+Browser does not open:
+
+```bash
+docker compose ps
+docker compose logs viz
+```
+
+RViz2 opens but has no data:
+
+```bash
+make topic-list
+docker compose logs ros2 physics viz
+```
+
+No heartbeat or takeoff fails:
+
+```bash
+docker compose logs sitl-json ros2
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /drone/heartbeat --once'
+```
+
+No JSON physics frames:
+
+```bash
+docker compose logs sitl-json physics
 ```
 
 Camera topic missing:
 
 ```bash
 grep -E "CAMERA_ENABLED|CAMERA_TOPIC|CAMERA_NAME" .env
-docker compose logs physics | grep -Ei "camera|osmesa|render|image"
+docker compose logs physics
 docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && python3 scripts/image_probe.py /sim/camera/front/image_raw'
 ```
 
-Docker CPU or memory too constrained:
+Docker feels too slow or unstable:
 
 ```bash
 make preflight
 docker stats
 ```
 
-If the stack is slow to start, raise Docker Desktop CPU and memory limits,
-then reset the Compose project with:
-
-```bash
-make down
-make up-viz
-```
-
-## Host Docker Preflight
-
-DFD-000 verifies only host-side Docker Desktop availability. Do not install ROS,
-Python, ArduPilot, MuJoCo, or alternate Docker-compatible runtimes on macOS for
-this project.
-
-Required host software:
-
-- Docker Desktop for Mac
-- Docker Engine included with Docker Desktop
-- Docker Compose plugin included with Docker Desktop
-- Make and the macOS shell
-
-Run the manual checks:
-
-```bash
-docker version
-docker compose version
-docker run --rm hello-world
-docker system df
-make preflight
-```
-
-`make preflight` reports the Mac architecture, Docker Desktop / Docker Engine
-details, Docker Compose version, Docker CPU and memory limits when Docker
-exposes them, and Docker disk usage from `docker system df`. It also runs the
-`hello-world` Linux container smoke test.
-
-Success ends with:
-
-```text
-PASS: DFD-000 Docker host preflight passed
-```
-
-## Repository Scaffold
-
-DFD-001 adds the Docker Compose and directory layout for the headless simulation
-stack. Host-side project commands stay limited to Docker Desktop, Docker
-Compose, Make, the shell, and a browser.
-
-Repository layout:
-
-```text
-compose.yaml
-.env.example
-Makefile
-docker/Dockerfile
-scripts/
-src/physics/
-src/ros2/
-models/
-models/scenarios/
-tests/
-artifacts/
-```
-
-Create local defaults before running Compose:
-
-```bash
-cp .env.example .env
-```
-
-Common commands:
-
-```bash
-make help
-make build
-make up
-make up-viz
-make down
-make test
-```
-
-The placeholder services use one shared image, mount this repository at
-`/workspace`, and set `/workspace` as the container working directory. Later
-tickets replace the placeholder commands with ArduPilot SITL, MuJoCo physics,
-ROS 2 bridge/control nodes, and local browser visualization.
-
-DFD-001 manual checks:
-
-```bash
-cp .env.example .env
-make help
-docker compose config
-docker compose run --rm ros2 pwd
-docker compose run --rm ros2 test -f /workspace/README.md
-echo "PASS: DFD-001 scaffold and compose config passed"
-```
-
-## Base Docker Image
-
-DFD-002 builds the shared simulation image from `ros:humble-ros-base`. All ROS,
-MuJoCo, MAVLink, build, and render dependencies are installed inside Docker.
-
-DFD-002 manual checks:
-
-```bash
-make build
-docker compose run --rm ros2 bash -lc 'python3 -c "import mujoco, rclpy, pymavlink; print(\"ok\")"'
-docker compose run --rm ros2 bash -lc 'command -v rviz2 && test -f /usr/share/novnc/vnc.html && command -v websockify && echo rviz-novnc-ok'
-docker compose run --rm physics python3 -m src.physics.render_smoke
-```
-
-Success ends with:
-
-```text
-PASS: DFD-002 base image imports and headless render passed
-```
-
-## ArduPilot SITL Image Build
-
-DFD-003 pins ArduPilot to a full commit SHA and bakes Copter SITL into the
-shared Docker image at `/opt/ardupilot`. The default pin is:
-
-```text
-92b0cd788ec29406f26c6f9c31d5ceedbd1cc538
-```
-
-The Docker build clones ArduPilot with submodules, checks out the pinned commit,
-runs the Ubuntu prerequisite installer, builds Copter SITL with `waf`, and
-writes the resolved image build ref to `/opt/ardupilot/ARDUPILOT_BUILD_REF`.
-
-DFD-003 manual checks:
-
-```bash
-make build
-docker compose run --rm sitl bash -lc 'git -C /opt/ardupilot rev-parse HEAD'
-docker compose run --rm sitl bash -lc 'cat /opt/ardupilot/ARDUPILOT_BUILD_REF'
-docker compose run --rm sitl bash -lc 'test "$(git -C /opt/ardupilot rev-parse HEAD)" = "$(cat /opt/ardupilot/ARDUPILOT_BUILD_REF)"'
-docker compose run --rm sitl bash -lc '/opt/ardupilot/build/sitl/bin/arducopter --help | head'
-docker compose run --rm sitl bash -lc 'test -x /opt/ardupilot/Tools/autotest/sim_vehicle.py && echo sim_vehicle-ok'
-echo "PASS: DFD-003 pinned ArduPilot SITL build passed"
-```
-
-## Baseline ArduCopter SITL
-
-DFD-004 adds a `baseline` Compose profile that starts ArduCopter SITL in normal
-quad mode with ArduPilot's built-in physics. The explicit MAVLink route is:
-
-```text
-sitl-baseline -> udp:ros2:14550
-```
-
-The service keeps the planned `sim_vehicle.py ... --no-mavproxy
---out=udp:ros2:14550` shape and passes `--serial0=udpclient:ros2:14550`
-directly to the SITL binary so MAVLink still flows without MAVProxy.
-Compose resolves the `ros2` service name to its numeric container IPv4 before
-passing the `udpclient` argument to ArduPilot, because SITL expects a numeric
-UDP target address.
-
-Start the baseline stack in one terminal:
-
-```bash
-docker compose --profile baseline up sitl-baseline ros2
-```
-
-Wait for the heartbeat from another terminal:
-
-```bash
-docker compose logs sitl-baseline | grep -E "14550|MAVProxy|udp|serial0|out"
-docker compose exec ros2 python3 scripts/mavlink_wait_heartbeat.py --connect udp:0.0.0.0:14550
-```
-
-The heartbeat script prints `sysid`, `compid`, vehicle type, autopilot type,
-base mode, custom mode, and the ticket PASS line:
-
-```text
-PASS: DFD-004 baseline SITL heartbeat passed
-```
-
-## ArduPilot JSON Protocol Parser
-
-DFD-005 added the binary PWM parser and the original static JSON protocol
-stub. DFD-007 replaces the Compose runtime with the real MuJoCo-backed
-`physics` service, but the parser and focused unit tests remain useful.
-
-The parser decodes ArduPilot's binary PWM packet, supports the 16-channel magic
-`18458`, detects the 32-channel magic `29569`, and keeps the mandatory JSON
-field shape used by the live physics service:
-
-```text
-timestamp
-imu.gyro
-imu.accel_body
-position
-velocity
-quaternion
-```
-
-Run the focused parser unit check:
-
-```bash
-make test-json-stub
-```
-
-## Minimal MuJoCo Quadrotor Model
-
-DFD-006 adds `models/quad.xml`, a no-GUI MuJoCo model with one free
-`base_link` body, placeholder mass and inertia, four rotor force application
-sites, and a fixed `front_cam` camera. The Python wrapper in
-`src/physics/mujoco_quad.py` loads the model, resets it, applies four motor
-thrust values, steps MuJoCo, and returns pose, velocity, angular velocity, and
-body acceleration.
-
-Run the self-test inside Docker:
-
-```bash
-docker compose run --rm physics python3 -m src.physics.self_test
-```
-
-The self-test proves zero thrust falls and hover-ish thrust remains bounded,
-then prints:
-
-```text
-PASS: DFD-006 MuJoCo quad self-test passed
-```
-
-## MuJoCo JSON SITL Integration
-
-DFD-007 connects ArduCopter SITL's JSON external-physics mode to the real
-MuJoCo quad model:
-
-```text
-sitl-json -> resolves physics, then starts --model JSON:<physics-ip>
-physics -> UDP 9002 MuJoCo JSON external-physics endpoint
-```
-
-The `sitl-json` service also resolves the `ros2` service name to a numeric
-container IPv4 before passing `--serial0=udpclient:<ros2-ip>:14550`, which keeps
-MAVLink command traffic bidirectional.
-
-The physics service receives ArduPilot PWM frames, maps PWM channels 1-4 into
-rotor thrust, advances MuJoCo with bounded fixed substeps, and replies with
-newline-terminated JSON containing NED `position`/`velocity`, FRD body
-`imu.gyro`/`imu.accel_body`, and scalar-first `quaternion`. It intentionally
-does not send Euler `attitude`.
-
-Run the focused convention test:
-
-```bash
-docker compose run --rm physics pytest tests/test_frame_conventions.py
-```
-
-Run the integration stack in one terminal:
-
-```bash
-docker compose --profile mujoco up sitl-json physics
-```
-
-Check the logs from another terminal:
-
-```bash
-docker compose logs physics | grep -E "frame_count|timestep|pwm|thrust|ned"
-docker compose logs sitl-json | grep -A8 "JSON received"
-echo "PASS: DFD-007 MuJoCo JSON integration passed"
-```
-
-## ROS 2 MAVLink Bridge
-
-DFD-008 adds the `drone_bridge` ROS 2 Python package. The `ros2` Compose
-service builds the workspace, starts `drone_mavlink_bridge`, listens for
-ArduPilot MAVLink on UDP `14550`, publishes status on `/drone/heartbeat`, and
-publishes MAVLink `LOCAL_POSITION_NED` as ROS ENU/z-up odometry on
-`/drone/odom`.
-
-Start the integration stack in one terminal:
-
-```bash
-docker compose --profile mujoco up sitl-json physics ros2
-```
-
-Check the ROS bridge from another terminal:
-
-```bash
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 node list'
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /drone/heartbeat --once'
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /drone/odom --once'
-docker compose exec ros2 bash -lc 'cd /workspace && pytest tests/test_ros_frame_conventions.py'
-echo "PASS: DFD-008 ROS 2 MAVLink bridge passed"
-```
-
-## ROS 2 Arm And Takeoff
-
-DFD-009 uses the bridge command topics to arm ArduCopter and request a 2 m
-guided takeoff. The bridge requests GUIDED mode before sending the MAVLink
-takeoff command, then `scripts/ros_wait_altitude.py` watches `/drone/odom` as
-ROS ENU/z-up odometry and exits after the altitude delta reaches the requested
-threshold.
-
-Start the integration stack in one terminal:
-
-```bash
-docker compose --profile mujoco up sitl-json physics ros2
-```
-
-Command arm and takeoff from another terminal:
-
-```bash
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic pub --once /drone/arm std_msgs/msg/Bool "{data: true}"'
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic pub --once /drone/takeoff_alt_m std_msgs/msg/Float32 "{data: 2.0}"'
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && python3 scripts/ros_wait_altitude.py --topic /drone/odom --min-delta 0.5 --timeout 30'
-```
-
-The altitude watcher prints the starting altitude, latest altitude, delta, and
-on success:
-
-```text
-PASS: DFD-009 ROS arm and takeoff passed
-```
-
-Cleanup is intentionally explicit. Run these commands separately and let any
-land or disarm error remain visible:
-
-```bash
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic pub --once /drone/land std_msgs/msg/Bool "{data: true}"'
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic pub --once /drone/arm std_msgs/msg/Bool "{data: false}"'
-docker compose down
-```
-
-## ROS 2 Visualization State
-
-DFD-010 makes the `physics` service publish MuJoCo ground-truth visualization
-state directly into ROS 2 while keeping MAVLink-derived `/drone/odom` separate.
-The published visualization topics use ROS ENU/z-up frames and wall-clock node
-timestamps:
-
-```text
-/sim/ground_truth/odom nav_msgs/msg/Odometry
-/tf tf2_msgs/msg/TFMessage
-/sim/scenario_markers visualization_msgs/msg/MarkerArray
-```
-
-The TF stream includes `world -> base_link` and `base_link -> rotor_*` site
-frames. Scenario markers are selected by `SCENARIO` and match the active MuJoCo
-scenario overlay.
-
-Start the integration stack in one terminal:
-
-```bash
-docker compose --profile mujoco up sitl-json physics ros2
-```
-
-Probe the visualization topics from another terminal:
-
-```bash
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && python3 scripts/ros_topic_probe.py /sim/ground_truth/odom /tf /sim/scenario_markers'
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /sim/ground_truth/odom --once'
-```
-
-The topic probe prints each topic and message type after receiving one message
-from each topic, then prints:
-
-```text
-PASS: DFD-010 ROS visualization state topics passed
-```
-
-## MuJoCo Camera Image Publishing
-
-DFD-011 renders the fixed MuJoCo `front_cam` camera headlessly inside the
-`physics` service with `MUJOCO_GL=osmesa`, then publishes ROS 2 camera topics:
-
-```text
-/sim/camera/front/image_raw sensor_msgs/msg/Image
-/sim/camera/front/camera_info sensor_msgs/msg/CameraInfo
-```
-
-The camera defaults are configured through `.env` and Compose:
-
-```text
-CAMERA_ENABLED=true
-CAMERA_NAME=front_cam
-CAMERA_WIDTH=640
-CAMERA_HEIGHT=480
-CAMERA_FPS=10
-```
-
-Set `CAMERA_ENABLED=false` to keep physics stepping without creating the
-offscreen renderer or publishing camera topics.
-
-Start the integration stack in one terminal:
-
-```bash
-docker compose --profile mujoco up sitl-json physics ros2
-```
-
-Check the camera stream from another terminal:
-
-```bash
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic hz /sim/camera/front/image_raw'
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /sim/camera/front/camera_info --once'
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && python3 scripts/image_probe.py /sim/camera/front/image_raw'
-```
-
-The image probe prints width, height, encoding, FPS estimate, and pixel
-min/max, then prints:
-
-```text
-PASS: DFD-011 MuJoCo camera publishing passed
-```
-
-## RViz2 noVNC Browser Visualization
-
-DFD-012 runs RViz2 inside Docker and exposes that desktop through noVNC on the
-Mac loopback interface. No host ROS, RViz2, MuJoCo, or ArduPilot install is
-required.
-
-Start the browser-viewable stack:
-
-```bash
-make up-viz
-```
-
-Open the local viewer in a Mac browser:
-
-```text
-http://localhost:6080/vnc.html?autoconnect=true&resize=scale
-```
-
-Confirm the viewer service started:
-
-```bash
-docker compose logs viz | grep -Ei "rviz|vnc|websockify|xvfb|fluxbox"
-```
-
-Confirm the visualization topics are present:
-
-```bash
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic list | grep -E "/drone/odom|/sim/ground_truth/odom|/tf|/sim/scenario_markers|/sim/drone_markers|/sim/camera/front/image_raw"'
-```
-
-The RViz2 config at `config/drone.rviz` uses fixed frame `world` and loads
-displays for TF, MAVLink-derived odometry, MuJoCo ground-truth odometry,
-scenario markers, a simple drone body marker, and the front camera image
-stream. The MuJoCo model also keeps the unpowered quad in contact with the
-ground plane so the pose remains visible before takeoff.
-
-Manual visual check:
-
-- `Global Status` should be `Ok`.
-- The drone body should be visible near the landing pad.
-- TF axes should be small and unlabeled.
-- Odometry should show the current pose without a large historical arrow fan.
-
-After the browser check succeeds, finish the ticket with:
-
-```bash
-echo "PASS: DFD-012 RViz2 noVNC browser visualization passed"
-```
-
-## Viewing scenarios
-
-DFD-013 loads MuJoCo scenario overlays from `models/scenarios/` at physics
-startup. The same `SCENARIO` value also selects the RViz2 marker set published
-on `/sim/scenario_markers`.
-
-Available scenarios:
-
-```text
-empty_world      base ground plane only, no scenario markers
-landing_pad      green landing pad and yellow boundary
-obstacle_course  landing pad, red obstacles, blue gate, and yellow boundary
-```
-
-Start the browser-viewable stack with the landing-pad scenario:
-
-```bash
-make down
-SCENARIO=landing_pad make up-viz
-```
-
-Open:
-
-```text
-http://localhost:6080/vnc.html?autoconnect=true&resize=scale
-```
-
-Confirm the physics service loaded the selected XML:
-
-```bash
-docker compose logs physics | grep -E "scenario=landing_pad|scenario_xml"
-```
-
-Then switch to the obstacle course:
-
-```bash
-make down
-SCENARIO=obstacle_course make up-viz
-docker compose logs physics | grep -E "scenario=obstacle_course|scenario_xml"
-```
-
-Manual visual check:
-
-- `landing_pad` shows the green pad and yellow boundary, without red obstacles
-  or the blue gate.
-- `obstacle_course` adds two red obstacle blocks and a blue gate in both the
-  MuJoCo camera view and RViz2 scenario markers.
-- `/sim/scenario_markers` remains present after either scenario starts:
-
-```bash
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /sim/scenario_markers --once'
-```
-
-## End-to-end takeoff smoke test
-
-DFD-014 adds a one-command Docker Compose smoke test for the full headless
-MuJoCo/SITL/ROS 2 path. The target resets the local Compose project, starts the
-MuJoCo profile, waits for the MAVLink heartbeat bridged into ROS 2, verifies
-the bridge publishers and command subscriptions, arms, commands a 2 m takeoff,
-and monitors `/drone/odom` until ROS ENU/z-up altitude exceeds 1 m. It then
-sends best-effort land and disarm cleanup commands.
-
-The ROS bridge force-arms SITL for this Docker-only smoke path so transient
-headless timing/EKF pre-arm checks do not block the test. This repository is
-not configured for hardware control.
-
-Run:
-
-```bash
-make test-e2e
-```
-
-Success ends with:
-
-```text
-E2E PASS: heartbeat, arm, takeoff, odom altitude threshold reached
-```
-
-Manual debugging flow:
-
-```bash
-docker compose --profile mujoco up -d sitl-json physics ros2
-docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash && python3 scripts/e2e_takeoff.py'
-docker compose logs sitl-json physics ros2
-make down
-```
-
-## Observability and artifacts
-
-DFD-015 adds bounded observability targets for debugging the Docker-only stack
-without GUI tools. The repository `artifacts/` directory is mounted into every
-Compose service at `/workspace/artifacts`.
-
-Artifact layout:
-
-```text
-artifacts/ardupilot/  ArduPilot SITL state and output from sim_vehicle.py
-artifacts/rosbags/    ROS 2 bag recordings
-artifacts/test-logs/  topic, bag, and Compose command logs
-```
-
-Start the browser-viewable stack:
-
-```bash
-make up-viz
-```
-
-List live ROS 2 topics and tee the output to `artifacts/test-logs/`:
-
-```bash
-make topic-list
-```
-
-Expected required topics:
-
-```text
-/drone/odom
-/sim/ground_truth/odom
-/tf
-/sim/scenario_markers
-```
-
-The camera topic is optional and appears when `CAMERA_ENABLED=true`:
-
-```text
-/sim/camera/front/image_raw
-```
-
-Measure a bounded topic rate sample:
-
-```bash
-make topic-hz TOPIC=/drone/odom
-```
-
-Success prints:
-
-```text
-PASS: DFD-015 topic rate probe passed
-```
-
-Record a short ROS bag. The recorder uses MCAP when the image has the
-`rosbag2_storage_mcap` plugin; otherwise it falls back to the default ROS 2 bag
-storage.
-
-```bash
-make bag-record DURATION=10
-ls artifacts/
-find artifacts -maxdepth 3 -type f | sort
-```
-
-Success prints:
-
-```text
-PASS: DFD-015 bag record artifacts passed
-```
-
-Capture Compose logs into `artifacts/test-logs/` while following the running
-services:
-
-```bash
-make logs
-```
-
-For a non-following snapshot:
-
-```bash
-make logs LOG_FLAGS=
-```
-
-Manual DFD-015 pass condition:
-
-```bash
-echo "PASS: DFD-015 observability artifacts passed"
-```
+Increase Docker Desktop CPU or memory limits, then restart the stack.
