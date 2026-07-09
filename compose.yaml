@@ -40,7 +40,15 @@ services:
     <<: *sim-common
     expose:
       - "14550/udp"
-    command: ["bash", "-lc", "sleep infinity"]
+    command:
+      - bash
+      - -lc
+      - |
+        set -eo pipefail
+        source /opt/ros/humble/setup.bash
+        colcon build --symlink-install --packages-select drone_bridge
+        source /workspace/install/setup.bash
+        exec ros2 run drone_bridge mavlink_bridge --ros-args -p connect:=udpin:0.0.0.0:14550
 
   sitl-baseline:
     <<: *sim-common
@@ -68,6 +76,7 @@ services:
     profiles: ["mujoco"]
     depends_on:
       - physics
+      - ros2
     init: true
     user: ardupilot
     command:
@@ -87,8 +96,9 @@ services:
         echo "Resolved $${PHYSICS_HOST} to $${PHYSICS_IP} for ArduPilot numeric IPv4"
         echo "MAVProxy disabled via --no-mavproxy"
         echo "ArduPilot child output inherited via SITL_RITW_TERMINAL=bash"
-        echo "Direct SITL serial0 UDP sink: --serial0=udpclient:127.0.0.1:14550"
-        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --model "JSON:$${PHYSICS_IP}" --sitl-instance-args=--serial0=udpclient:127.0.0.1:14550
+        echo "ROS 2 MAVLink stream params: --add-param-file=/workspace/config/ros2_mavlink_streams.parm"
+        echo "Direct SITL serial0 UDP sink: --serial0=udpclient:ros2:14550"
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --model "JSON:$${PHYSICS_IP}" --add-param-file=/workspace/config/ros2_mavlink_streams.parm --sitl-instance-args=--serial0=udpclient:ros2:14550
 
   viz:
     <<: *sim-common

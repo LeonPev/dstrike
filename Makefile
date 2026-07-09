@@ -1,4 +1,4 @@
-.PHONY: help preflight build up up-baseline baseline-heartbeat up-mujoco test-json-stub test-mujoco-quad test-frame-conventions up-viz down logs shell-ros2 shell-sitl shell-physics test test-e2e
+.PHONY: help preflight build up up-baseline baseline-heartbeat up-mujoco test-json-stub test-mujoco-quad test-frame-conventions test-ros-frame-conventions up-viz down logs shell-ros2 shell-sitl shell-physics test test-e2e
 
 help:
 	@printf '%s\n' \
@@ -13,6 +13,7 @@ help:
 		'  test-json-stub Run JSON protocol stub unit tests in Docker' \
 		'  test-mujoco-quad  Run the minimal MuJoCo quad self-test in Docker' \
 		'  test-frame-conventions  Run ENU/NED and altitude sign unit tests' \
+		'  test-ros-frame-conventions  Run ROS odometry frame-convention unit tests' \
 		'  up-viz         Start the browser visualization placeholder on localhost:8765' \
 		'  down           Stop and remove Compose services' \
 		'  logs           Follow Compose service logs' \
@@ -38,7 +39,7 @@ baseline-heartbeat:
 	docker compose exec ros2 python3 scripts/mavlink_wait_heartbeat.py --connect udp:0.0.0.0:14550
 
 up-mujoco:
-	docker compose --profile mujoco up sitl-json physics
+	docker compose --profile mujoco up sitl-json physics ros2
 
 test-json-stub:
 	docker compose run --rm physics python3 -m pytest tests/test_ardupilot_json_stub.py
@@ -48,6 +49,9 @@ test-mujoco-quad:
 
 test-frame-conventions:
 	docker compose run --rm physics pytest tests/test_frame_conventions.py
+
+test-ros-frame-conventions:
+	docker compose run --rm ros2 pytest tests/test_ros_frame_conventions.py
 
 up-viz:
 	docker compose --profile viz up -d viz

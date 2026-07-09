@@ -252,3 +252,27 @@ docker compose logs physics | grep -E "frame_count|timestep|pwm|thrust|ned"
 docker compose logs sitl-json | grep -A8 "JSON received"
 echo "PASS: DFD-007 MuJoCo JSON integration passed"
 ```
+
+## ROS 2 MAVLink Bridge
+
+DFD-008 adds the `drone_bridge` ROS 2 Python package. The `ros2` Compose
+service builds the workspace, starts `drone_mavlink_bridge`, listens for
+ArduPilot MAVLink on UDP `14550`, publishes status on `/drone/heartbeat`, and
+publishes MAVLink `LOCAL_POSITION_NED` as ROS ENU/z-up odometry on
+`/drone/odom`.
+
+Start the integration stack in one terminal:
+
+```bash
+docker compose --profile mujoco up sitl-json physics ros2
+```
+
+Check the ROS bridge from another terminal:
+
+```bash
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 node list'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /drone/heartbeat --once'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /drone/odom --once'
+docker compose exec ros2 bash -lc 'cd /workspace && pytest tests/test_ros_frame_conventions.py'
+echo "PASS: DFD-008 ROS 2 MAVLink bridge passed"
+```
