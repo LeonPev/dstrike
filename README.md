@@ -432,6 +432,13 @@ scenario markers, a simple drone body marker, and the front camera image
 stream. The MuJoCo model also keeps the unpowered quad in contact with the
 ground plane so the pose remains visible before takeoff.
 
+Manual visual check:
+
+- `Global Status` should be `Ok`.
+- The drone body should be visible near the landing pad.
+- TF axes should be small and unlabeled.
+- Odometry should show the current pose without a large historical arrow fan.
+
 After the browser check succeeds, finish the ticket with:
 
 ```bash

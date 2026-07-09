@@ -52,11 +52,11 @@ Visualization Manager:
       Frame Timeout: 15
       Frames:
         All Enabled: true
-      Marker Scale: 1
+      Marker Scale: 0.25
       Name: TF
-      Show Arrows: true
+      Show Arrows: false
       Show Axes: true
-      Show Names: true
+      Show Names: false
       Topic:
         Depth: 100
         Durability Policy: Volatile
@@ -84,7 +84,7 @@ Visualization Manager:
           Value: false
         Value: false
       Enabled: true
-      Keep: 50
+      Keep: 1
       Name: Drone Odometry
       Position Tolerance: 0.1
       Shape: Arrow
@@ -114,7 +114,7 @@ Visualization Manager:
           Value: false
         Value: false
       Enabled: true
-      Keep: 50
+      Keep: 1
       Name: Ground Truth Odometry
       Position Tolerance: 0.1
       Shape: Axes
