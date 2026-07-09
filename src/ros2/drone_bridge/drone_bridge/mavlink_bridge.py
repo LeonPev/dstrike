@@ -31,6 +31,9 @@ LOCAL_NED_VELOCITY_TYPE_MASK = 1479
 GUIDED_MODE_REQUEST_INTERVAL_S = 2.0
 TAKEOFF_GUIDED_WAIT_S = 45.0
 ARDUPILOT_FORCE_ARM_MAGIC = 2989.0
+VELOCITY_COMMAND_REFRESH_INTERVAL_S = 0.2
+VELOCITY_COMMAND_TIMEOUT_S = 0.75
+VELOCITY_ZERO_HOLD_AFTER_TIMEOUT_S = 2.0
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,10 @@ class MavlinkWorker:
         self._pending_arm_deadline_s = 0.0
         self._pending_takeoff_altitude_m: float | None = None
         self._pending_takeoff_deadline_s = 0.0
+        self._active_velocity_command: VelocityCommand | None = None
+        self._active_velocity_received_s = 0.0
+        self._active_velocity_sent_s = 0.0
+        self._velocity_zero_hold_until_s = 0.0
         self._seen_message_types: set[str] = set()
         self._heartbeat: dict[str, Any] | None = None
         self._local_position: LocalPositionNed | None = None
@@ -153,12 +160,14 @@ class MavlinkWorker:
                 self._drain_commands()
                 self._try_send_pending_arm()
                 self._try_send_pending_takeoff()
+                self._refresh_velocity_command(now_s)
 
                 message = self._connection.recv_match(blocking=True, timeout=0.1)
                 if message is not None:
                     self._handle_message(message)
                     self._try_send_pending_arm()
                     self._try_send_pending_takeoff()
+                    self._refresh_velocity_command(time.monotonic())
         except Exception as exc:  # pragma: no cover - exercised in live Docker runs.
             self._set_error(f"{type(exc).__name__}: {exc}")
             self._logger.error(f"MAVLink worker stopped: {type(exc).__name__}: {exc}")
@@ -279,13 +288,15 @@ class MavlinkWorker:
                     self._queue_arm()
                 else:
                     self._pending_arm = False
+                    self._clear_velocity_command()
                     self._send_arm(False)
             elif isinstance(command, TakeoffCommand):
                 self._queue_takeoff(command.altitude_m)
             elif isinstance(command, LandCommand):
+                self._clear_velocity_command()
                 self._send_land()
             elif isinstance(command, VelocityCommand):
-                self._send_velocity(command)
+                self._queue_velocity(command)
 
     def _has_mavlink_target(self) -> bool:
         return (
@@ -472,6 +483,73 @@ class MavlinkWorker:
             0,
         )
         self._logger.info("sent MAVLink land command")
+
+    def _queue_velocity(self, command: VelocityCommand) -> None:
+        now_s = time.monotonic()
+        self._active_velocity_command = command
+        self._active_velocity_received_s = now_s
+        self._active_velocity_sent_s = 0.0
+        self._velocity_zero_hold_until_s = 0.0
+        self._refresh_velocity_command(now_s)
+
+    def _refresh_velocity_command(self, now_s: float) -> None:
+        command = self._active_velocity_command
+        if command is None:
+            return
+
+        command_is_stale = (
+            now_s - self._active_velocity_received_s >= VELOCITY_COMMAND_TIMEOUT_S
+        )
+        if command_is_stale:
+            if not self._is_zero_velocity(command):
+                command = self._zero_velocity_command()
+                self._active_velocity_command = command
+                self._active_velocity_sent_s = 0.0
+                self._velocity_zero_hold_until_s = (
+                    now_s + VELOCITY_ZERO_HOLD_AFTER_TIMEOUT_S
+                )
+                self._logger.warning(
+                    "velocity command timed out; sending zero velocity hold"
+                )
+            elif self._velocity_zero_hold_until_s == 0.0:
+                self._velocity_zero_hold_until_s = (
+                    self._active_velocity_received_s
+                    + VELOCITY_ZERO_HOLD_AFTER_TIMEOUT_S
+                )
+            elif now_s >= self._velocity_zero_hold_until_s:
+                self._clear_velocity_command()
+                return
+
+        if (
+            now_s - self._active_velocity_sent_s
+            < VELOCITY_COMMAND_REFRESH_INTERVAL_S
+        ):
+            return
+
+        self._send_velocity(command)
+        self._active_velocity_sent_s = now_s
+
+    def _clear_velocity_command(self) -> None:
+        self._active_velocity_command = None
+        self._active_velocity_received_s = 0.0
+        self._active_velocity_sent_s = 0.0
+        self._velocity_zero_hold_until_s = 0.0
+
+    def _zero_velocity_command(self) -> VelocityCommand:
+        return VelocityCommand(
+            north_m_s=0.0,
+            east_m_s=0.0,
+            down_m_s=0.0,
+            yaw_rate_rad_s=0.0,
+        )
+
+    def _is_zero_velocity(self, command: VelocityCommand) -> bool:
+        return (
+            command.north_m_s == 0.0
+            and command.east_m_s == 0.0
+            and command.down_m_s == 0.0
+            and command.yaw_rate_rad_s == 0.0
+        )
 
     def _send_velocity(self, command: VelocityCommand) -> None:
         if not self._target_ready():
