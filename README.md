@@ -276,3 +276,41 @@ docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 
 docker compose exec ros2 bash -lc 'cd /workspace && pytest tests/test_ros_frame_conventions.py'
 echo "PASS: DFD-008 ROS 2 MAVLink bridge passed"
 ```
+
+## ROS 2 Arm And Takeoff
+
+DFD-009 uses the bridge command topics to arm ArduCopter and request a 2 m
+guided takeoff. The bridge requests GUIDED mode before sending the MAVLink
+takeoff command, then `scripts/ros_wait_altitude.py` watches `/drone/odom` as
+ROS ENU/z-up odometry and exits after the altitude delta reaches the requested
+threshold.
+
+Start the integration stack in one terminal:
+
+```bash
+docker compose --profile mujoco up sitl-json physics ros2
+```
+
+Command arm and takeoff from another terminal:
+
+```bash
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic pub --once /drone/arm std_msgs/msg/Bool "{data: true}"'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic pub --once /drone/takeoff_alt_m std_msgs/msg/Float32 "{data: 2.0}"'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && python3 scripts/ros_wait_altitude.py --topic /drone/odom --min-delta 0.5 --timeout 30'
+```
+
+The altitude watcher prints the starting altitude, latest altitude, delta, and
+on success:
+
+```text
+PASS: DFD-009 ROS arm and takeoff passed
+```
+
+Cleanup is intentionally explicit. Run these commands separately and let any
+land or disarm error remain visible:
+
+```bash
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic pub --once /drone/land std_msgs/msg/Bool "{data: true}"'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic pub --once /drone/arm std_msgs/msg/Bool "{data: false}"'
+docker compose down
+```

@@ -28,6 +28,8 @@ from drone_bridge.frame_conventions import (
 
 
 LOCAL_NED_VELOCITY_TYPE_MASK = 1479
+GUIDED_MODE_REQUEST_INTERVAL_S = 2.0
+TAKEOFF_GUIDED_WAIT_S = 5.0
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,11 @@ class ArmCommand:
 @dataclass(frozen=True)
 class TakeoffCommand:
     altitude_m: float
+
+
+@dataclass(frozen=True)
+class LandCommand:
+    pass
 
 
 @dataclass(frozen=True)
@@ -62,9 +69,9 @@ class MavlinkWorker:
     def __init__(self, endpoint: str, logger: Any) -> None:
         self._endpoint = endpoint
         self._logger = logger
-        self._commands: queue.Queue[ArmCommand | TakeoffCommand | VelocityCommand] = (
-            queue.Queue()
-        )
+        self._commands: queue.Queue[
+            ArmCommand | TakeoffCommand | LandCommand | VelocityCommand
+        ] = queue.Queue()
         self._state_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._run, name="mavlink-worker")
@@ -74,6 +81,8 @@ class MavlinkWorker:
         self._target_system = 0
         self._target_component = 0
         self._last_guided_request_s = 0.0
+        self._pending_takeoff_altitude_m: float | None = None
+        self._pending_takeoff_deadline_s = 0.0
         self._seen_message_types: set[str] = set()
         self._heartbeat: dict[str, Any] | None = None
         self._local_position: LocalPositionNed | None = None
@@ -95,6 +104,9 @@ class MavlinkWorker:
 
     def enqueue_takeoff(self, altitude_m: float) -> None:
         self._commands.put(TakeoffCommand(altitude_m=float(altitude_m)))
+
+    def enqueue_land(self) -> None:
+        self._commands.put(LandCommand())
 
     def enqueue_velocity(self, command: VelocityCommand) -> None:
         self._commands.put(command)
@@ -133,10 +145,12 @@ class MavlinkWorker:
                     next_interval_request_s = now_s + 10.0
 
                 self._drain_commands()
+                self._try_send_pending_takeoff()
 
                 message = self._connection.recv_match(blocking=True, timeout=0.1)
                 if message is not None:
                     self._handle_message(message)
+                    self._try_send_pending_takeoff()
         except Exception as exc:  # pragma: no cover - exercised in live Docker runs.
             self._set_error(f"{type(exc).__name__}: {exc}")
             self._logger.error(f"MAVLink worker stopped: {type(exc).__name__}: {exc}")
@@ -253,14 +267,21 @@ class MavlinkWorker:
             if isinstance(command, ArmCommand):
                 self._send_arm(command.arm)
             elif isinstance(command, TakeoffCommand):
-                self._send_takeoff(command.altitude_m)
+                self._queue_takeoff(command.altitude_m)
+            elif isinstance(command, LandCommand):
+                self._send_land()
             elif isinstance(command, VelocityCommand):
                 self._send_velocity(command)
 
+    def _has_mavlink_target(self) -> bool:
+        return (
+            self._connection is not None
+            and self._mavutil is not None
+            and self._target_system != 0
+        )
+
     def _target_ready(self) -> bool:
-        if self._connection is None or self._mavutil is None:
-            return False
-        if self._target_system:
+        if self._has_mavlink_target():
             return True
         self._logger.warning("dropping MAVLink command until heartbeat sets target")
         return False
@@ -332,13 +353,36 @@ class MavlinkWorker:
         )
         self._logger.info(f"sent MAVLink {'arm' if arm else 'disarm'} command")
 
-    def _send_takeoff(self, altitude_m: float) -> None:
+    def _queue_takeoff(self, altitude_m: float) -> None:
         if altitude_m <= 0.0:
             self._logger.warning("ignoring non-positive takeoff altitude")
             return
         if not self._target_ready():
             return
+        self._pending_takeoff_altitude_m = float(altitude_m)
+        self._pending_takeoff_deadline_s = time.monotonic() + TAKEOFF_GUIDED_WAIT_S
         self._ensure_guided_mode()
+        self._try_send_pending_takeoff()
+
+    def _try_send_pending_takeoff(self) -> None:
+        if self._pending_takeoff_altitude_m is None:
+            return
+        if not self._has_mavlink_target():
+            return
+        now_s = time.monotonic()
+        if not self._is_guided_mode():
+            self._ensure_guided_mode()
+            if now_s < self._pending_takeoff_deadline_s:
+                return
+            self._logger.warning(
+                "GUIDED mode was not confirmed before takeoff deadline; "
+                "sending takeoff after requesting GUIDED"
+            )
+        altitude_m = self._pending_takeoff_altitude_m
+        self._pending_takeoff_altitude_m = None
+        self._send_takeoff_now(altitude_m)
+
+    def _send_takeoff_now(self, altitude_m: float) -> None:
         mavlink = self._mavutil.mavlink
         self._connection.mav.command_long_send(
             self._target_system,
@@ -354,6 +398,26 @@ class MavlinkWorker:
             float(altitude_m),
         )
         self._logger.info(f"sent MAVLink takeoff command altitude_m={altitude_m:g}")
+
+    def _send_land(self) -> None:
+        if not self._target_ready():
+            return
+        self._ensure_guided_mode()
+        mavlink = self._mavutil.mavlink
+        self._connection.mav.command_long_send(
+            self._target_system,
+            self._target_component,
+            mavlink.MAV_CMD_NAV_LAND,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
+        self._logger.info("sent MAVLink land command")
 
     def _send_velocity(self, command: VelocityCommand) -> None:
         if not self._target_ready():
@@ -383,8 +447,10 @@ class MavlinkWorker:
     def _ensure_guided_mode(self) -> None:
         if self._connection is None or self._mavutil is None:
             return
+        if self._is_guided_mode():
+            return
         now_s = time.monotonic()
-        if now_s - self._last_guided_request_s < 2.0:
+        if now_s - self._last_guided_request_s < GUIDED_MODE_REQUEST_INTERVAL_S:
             return
         mode_mapping = self._connection.mode_mapping() or {}
         guided_mode = mode_mapping.get("GUIDED")
@@ -397,6 +463,13 @@ class MavlinkWorker:
             guided_mode,
         )
         self._last_guided_request_s = now_s
+        self._logger.info("requested ArduPilot GUIDED mode")
+
+    def _is_guided_mode(self) -> bool:
+        with self._state_lock:
+            heartbeat = self._heartbeat
+            mode = heartbeat.get("mode") if heartbeat else None
+        return isinstance(mode, str) and mode.upper() == "GUIDED"
 
     def _set_error(self, error: str) -> None:
         with self._state_lock:
@@ -423,6 +496,7 @@ class MavlinkBridgeNode(Node):
             self._on_takeoff_altitude,
             10,
         )
+        self.create_subscription(Bool, "/drone/land", self._on_land, 10)
         self.create_subscription(Twist, "/drone/cmd_vel", self._on_cmd_vel, 10)
 
         self._worker = MavlinkWorker(endpoint=endpoint, logger=self.get_logger())
@@ -439,6 +513,10 @@ class MavlinkBridgeNode(Node):
 
     def _on_takeoff_altitude(self, message: Float32) -> None:
         self._worker.enqueue_takeoff(float(message.data))
+
+    def _on_land(self, message: Bool) -> None:
+        if bool(message.data):
+            self._worker.enqueue_land()
 
     def _on_cmd_vel(self, message: Twist) -> None:
         north_m_s, east_m_s, down_m_s = ros_enu_twist_to_mavlink_ned_velocity(
