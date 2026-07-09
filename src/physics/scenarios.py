@@ -98,7 +98,18 @@ def scenario_marker_specs_from_xml(
     xml_path: str | Path,
 ) -> tuple[ScenarioMarkerSpec, ...]:
     """Build RViz markers from the same MuJoCo scenario geoms used by physics."""
-    root = ET.parse(xml_path).getroot()
+    return _marker_specs_from_root(ET.parse(xml_path).getroot(), ("scenario_",))
+
+
+def marker_specs_from_model_xml(model_xml: str) -> tuple[ScenarioMarkerSpec, ...]:
+    """Build RViz markers from the complete MuJoCo model XML."""
+    return _marker_specs_from_root(ET.fromstring(model_xml), ("scenario_", "visual_"))
+
+
+def _marker_specs_from_root(
+    root: ET.Element,
+    marker_prefixes: tuple[str, ...],
+) -> tuple[ScenarioMarkerSpec, ...]:
     material_colors = _material_colors(root)
     marker_specs: list[ScenarioMarkerSpec] = []
     namespace_counts: dict[str, int] = {}
@@ -106,7 +117,7 @@ def scenario_marker_specs_from_xml(
     for geom in root.findall("./worldbody/geom"):
         geom_name = geom.attrib.get("name", "")
         geom_type = geom.attrib.get("type", "")
-        if not geom_name.startswith("scenario_"):
+        if not geom_name.startswith(marker_prefixes):
             continue
 
         if geom_type == "box":
@@ -182,6 +193,8 @@ def _geom_color_rgba(
 
 
 def _namespace_from_geom_name(geom_name: str) -> str:
+    if geom_name == "visual_camera_target":
+        return "visual_camera_target"
     if geom_name == "scenario_landing_pad":
         return "landing_pad"
     if geom_name.startswith("scenario_obstacle_"):

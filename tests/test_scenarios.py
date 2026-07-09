@@ -6,6 +6,7 @@ from pathlib import Path
 from src.physics.scenarios import (
     DEFAULT_SCENARIO_NAME,
     build_scenario_model_xml,
+    marker_specs_from_model_xml,
     scenario_from_mapping,
     scenario_from_name,
     scenario_marker_specs_from_xml,
@@ -128,6 +129,23 @@ def test_xml_marker_generation_has_no_parallel_hardcoded_marker_shape() -> None:
     direct_markers = scenario_marker_specs_from_xml(scenario.xml_path)
 
     assert scenario.marker_specs == direct_markers
+
+
+def test_complete_model_markers_include_base_camera_target_visual() -> None:
+    model_xml = build_scenario_model_xml(
+        BASE_MODEL_PATH,
+        scenario_from_name("obstacle_course"),
+    )
+    marker_by_namespace = {}
+    for marker in marker_specs_from_model_xml(model_xml):
+        marker_by_namespace.setdefault(marker.namespace, []).append(marker)
+
+    camera_target = marker_by_namespace["visual_camera_target"][0]
+    assert camera_target.shape == "cube"
+    assert camera_target.position_xyz == (2.0, 0.0, 0.35)
+    assert camera_target.scale_xyz == (0.36, 0.36, 0.7)
+    assert camera_target.color_rgba == (0.95, 0.75, 0.10, 1.0)
+    assert len(marker_by_namespace["scenario_boundary"]) == 4
 
 
 def test_empty_world_has_no_scenario_markers() -> None:

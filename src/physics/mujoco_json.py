@@ -26,6 +26,7 @@ from src.physics.ros_visualization import SimVisualizationPublisher
 from src.physics.scenarios import (
     DEFAULT_SCENARIO_NAME,
     build_scenario_model_xml,
+    marker_specs_from_model_xml,
     scenario_from_env,
     scenario_from_name,
 )
@@ -181,7 +182,7 @@ def serve(
     clock = FixedStepClock(fixed_dt=quad.timestep, max_frame_dt=max_frame_dt)
     ros_visualization = SimVisualizationPublisher(
         quad,
-        scenario_markers=scenario.marker_specs,
+        scenario_markers=marker_specs_from_model_xml(model_xml),
     )
     camera_config = CameraConfig.from_env()
     camera_publisher = (
