@@ -21,6 +21,7 @@ from src.physics.ardupilot_json_stub import (
 )
 from src.physics.frame_conventions import ardupilot_state_from_quad_state
 from src.physics.mujoco_quad import DEFAULT_MODEL_PATH, MuJoCoQuad
+from src.physics.ros_visualization import SimVisualizationPublisher
 
 
 GRAVITY_MPS2 = 9.80665
@@ -160,58 +161,68 @@ def serve(
         max_thrust_per_motor=max_thrust_per_motor,
     )
     clock = FixedStepClock(fixed_dt=quad.timestep, max_frame_dt=max_frame_dt)
+    ros_visualization = SimVisualizationPublisher(quad)
+    ros_visualization.publish(quad.state())
     last_log_at: float | None = None
 
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-        udp.bind((host, port))
-        print(
-            "MuJoCo JSON physics listening "
-            f"udp://{host}:{port} "
-            f"model={Path(model_path)} "
-            f"fixed_timestep={quad.timestep:.6f} "
-            f"max_frame_dt={max_frame_dt:.6f} "
-            f"max_thrust_per_motor={max_thrust_per_motor:.4f}",
-            file=stdout,
-            flush=True,
-        )
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+            udp.bind((host, port))
+            print(
+                "MuJoCo JSON physics listening "
+                f"udp://{host}:{port} "
+                f"model={Path(model_path)} "
+                f"fixed_timestep={quad.timestep:.6f} "
+                f"max_frame_dt={max_frame_dt:.6f} "
+                f"max_thrust_per_motor={max_thrust_per_motor:.4f}",
+                file=stdout,
+                flush=True,
+            )
 
-        while True:
-            payload, sender = udp.recvfrom(4096)
-            try:
-                packet = parse_pwm_packet(payload)
-                thrusts = thrust_mapper.thrusts_from_packet(packet)
-            except (PacketError, ValueError) as exc:
-                print(
-                    f"invalid_pwm_packet sender={sender[0]}:{sender[1]} error={exc}",
-                    file=stderr,
-                    flush=True,
+            while True:
+                payload, sender = udp.recvfrom(4096)
+                try:
+                    packet = parse_pwm_packet(payload)
+                    thrusts = thrust_mapper.thrusts_from_packet(packet)
+                except (PacketError, ValueError) as exc:
+                    print(
+                        f"invalid_pwm_packet sender={sender[0]}:{sender[1]} error={exc}",
+                        file=stderr,
+                        flush=True,
+                    )
+                    continue
+
+                step = clock.consume(packet)
+                if step.reset:
+                    quad.reset()
+                    print(
+                        f"mujoco_json reset frame_count={packet.frame_count}",
+                        file=stdout,
+                        flush=True,
+                    )
+
+                state = (
+                    quad.step(thrusts, substeps=step.substeps)
+                    if step.substeps
+                    else quad.state()
                 )
-                continue
+                ros_visualization.maybe_publish(state)
+                state_payload, state_json = build_state_json(state)
+                udp.sendto(state_json, sender)
 
-            step = clock.consume(packet)
-            if step.reset:
-                quad.reset()
-                print(
-                    f"mujoco_json reset frame_count={packet.frame_count}",
-                    file=stdout,
-                    flush=True,
-                )
-
-            state = quad.step(thrusts, substeps=step.substeps) if step.substeps else quad.state()
-            state_payload, state_json = build_state_json(state)
-            udp.sendto(state_json, sender)
-
-            now = time.monotonic()
-            if should_log_frame(now, last_log_at):
-                log_frame(
-                    packet=packet,
-                    step=step,
-                    thrusts=thrusts,
-                    ned_position=state_payload["position"],  # type: ignore[arg-type]
-                    fixed_timestep=quad.timestep,
-                    stream=stdout,
-                )
-                last_log_at = now
+                now = time.monotonic()
+                if should_log_frame(now, last_log_at):
+                    log_frame(
+                        packet=packet,
+                        step=step,
+                        thrusts=thrusts,
+                        ned_position=state_payload["position"],  # type: ignore[arg-type]
+                        fixed_timestep=quad.timestep,
+                        stream=stdout,
+                    )
+                    last_log_at = now
+    finally:
+        ros_visualization.close()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

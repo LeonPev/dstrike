@@ -314,3 +314,40 @@ docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 
 docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic pub --once /drone/arm std_msgs/msg/Bool "{data: false}"'
 docker compose down
 ```
+
+## ROS 2 Visualization State
+
+DFD-010 makes the `physics` service publish MuJoCo ground-truth visualization
+state directly into ROS 2 while keeping MAVLink-derived `/drone/odom` separate.
+The published visualization topics use ROS ENU/z-up frames and wall-clock node
+timestamps:
+
+```text
+/sim/ground_truth/odom nav_msgs/msg/Odometry
+/tf tf2_msgs/msg/TFMessage
+/sim/scenario_markers visualization_msgs/msg/MarkerArray
+```
+
+The TF stream includes `world -> base_link` and `base_link -> rotor_*` site
+frames. Scenario markers include a landing pad, obstacles, a gate, and the
+scenario boundary.
+
+Start the integration stack in one terminal:
+
+```bash
+docker compose --profile mujoco up sitl-json physics ros2
+```
+
+Probe the visualization topics from another terminal:
+
+```bash
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && python3 scripts/ros_topic_probe.py /sim/ground_truth/odom /tf /sim/scenario_markers'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /sim/ground_truth/odom --once'
+```
+
+The topic probe prints each topic and message type after receiving one message
+from each topic, then prints:
+
+```text
+PASS: DFD-010 ROS visualization state topics passed
+```

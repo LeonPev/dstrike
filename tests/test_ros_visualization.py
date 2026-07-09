@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import math
+
+import numpy as np
+
+from src.physics.ros_visualization import (
+    BASE_LINK_FRAME,
+    FrameTransform,
+    ground_truth_odom_fields,
+    quaternion_wxyz_to_xyzw,
+    vector3_tuple,
+)
+
+
+@dataclass(frozen=True)
+class FakeQuadState:
+    position: np.ndarray
+    quaternion: np.ndarray
+    velocity: np.ndarray
+
+
+def test_ground_truth_odom_fields_stay_in_ros_enu_z_up() -> None:
+    state = FakeQuadState(
+        position=np.array((1.0, 2.0, 3.0)),
+        quaternion=np.array((1.0, 0.0, 0.0, 0.0)),
+        velocity=np.array((4.0, 5.0, 6.0)),
+    )
+
+    fields = ground_truth_odom_fields(state)
+
+    assert fields.position_enu == (1.0, 2.0, 3.0)
+    assert fields.orientation_xyzw == (0.0, 0.0, 0.0, 1.0)
+    assert fields.linear_velocity_enu == (4.0, 5.0, 6.0)
+
+
+def test_quaternion_wxyz_to_xyzw_normalises_and_canonicalises_sign() -> None:
+    assert quaternion_wxyz_to_xyzw((-2.0, 0.0, 0.0, 0.0)) == (
+        -0.0,
+        -0.0,
+        -0.0,
+        1.0,
+    )
+
+    yaw_90_xyzw = quaternion_wxyz_to_xyzw(
+        (math.sqrt(0.5), 0.0, 0.0, math.sqrt(0.5))
+    )
+    assert yaw_90_xyzw == (0.0, 0.0, math.sqrt(0.5), math.sqrt(0.5))
+
+
+def test_vector3_tuple_rejects_wrong_dimensions() -> None:
+    try:
+        vector3_tuple((1.0, 2.0))
+    except ValueError as exc:
+        assert "exactly three" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_frame_transform_records_base_link_child_frame() -> None:
+    transform = FrameTransform(
+        parent_frame_id=BASE_LINK_FRAME,
+        child_frame_id="rotor_front_left",
+        translation_xyz=(0.18, 0.18, 0.02),
+        rotation_xyzw=(0.0, 0.0, 0.0, 1.0),
+    )
+
+    assert transform.parent_frame_id == "base_link"
+    assert transform.child_frame_id == "rotor_front_left"
