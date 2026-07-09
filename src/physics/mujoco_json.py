@@ -23,6 +23,12 @@ from src.physics.frame_conventions import ardupilot_state_from_quad_state
 from src.physics.mujoco_quad import DEFAULT_MODEL_PATH, MuJoCoQuad
 from src.physics.ros_camera import CameraConfig, SimCameraPublisher
 from src.physics.ros_visualization import SimVisualizationPublisher
+from src.physics.scenarios import (
+    DEFAULT_SCENARIO_NAME,
+    build_scenario_model_xml,
+    scenario_from_env,
+    scenario_from_name,
+)
 
 
 GRAVITY_MPS2 = 9.80665
@@ -147,6 +153,7 @@ def serve(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     model_path: str | Path = DEFAULT_MODEL_PATH,
+    scenario_name: str | None = None,
     pwm_min: int = DEFAULT_PWM_MIN,
     pwm_max: int = DEFAULT_PWM_MAX,
     thrust_to_weight: float = DEFAULT_THRUST_TO_WEIGHT,
@@ -154,7 +161,17 @@ def serve(
     stdout: TextIO = sys.stdout,
     stderr: TextIO = sys.stderr,
 ) -> None:
-    quad = MuJoCoQuad(model_path)
+    scenario = (
+        scenario_from_env()
+        if scenario_name is None
+        else scenario_from_name(scenario_name)
+    )
+    model_xml = build_scenario_model_xml(model_path, scenario)
+    quad = MuJoCoQuad(
+        model_path,
+        model_xml=model_xml,
+        model_source=f"{Path(model_path)} + {scenario.xml_path}",
+    )
     max_thrust_per_motor = quad.mass * GRAVITY_MPS2 * thrust_to_weight / 4.0
     thrust_mapper = PwmThrustMapper(
         pwm_min=pwm_min,
@@ -162,7 +179,10 @@ def serve(
         max_thrust_per_motor=max_thrust_per_motor,
     )
     clock = FixedStepClock(fixed_dt=quad.timestep, max_frame_dt=max_frame_dt)
-    ros_visualization = SimVisualizationPublisher(quad)
+    ros_visualization = SimVisualizationPublisher(
+        quad,
+        scenario_markers=scenario.marker_specs,
+    )
     camera_config = CameraConfig.from_env()
     camera_publisher = (
         SimCameraPublisher(quad, camera_config) if camera_config.enabled else None
@@ -178,7 +198,9 @@ def serve(
             print(
                 "MuJoCo JSON physics listening "
                 f"udp://{host}:{port} "
-                f"model={Path(model_path)} "
+                f"base_model={Path(model_path)} "
+                f"scenario={scenario.name} "
+                f"scenario_xml={scenario.xml_path} "
                 f"fixed_timestep={quad.timestep:.6f} "
                 f"max_frame_dt={max_frame_dt:.6f} "
                 f"max_thrust_per_motor={max_thrust_per_motor:.4f}",
@@ -245,7 +267,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--model-path",
         default=str(DEFAULT_MODEL_PATH),
-        help="MuJoCo XML model path.",
+        help="Base MuJoCo XML model path before the selected scenario is overlaid.",
+    )
+    parser.add_argument(
+        "--scenario",
+        default=None,
+        help=(
+            "Scenario name. Defaults to SCENARIO from the environment, then "
+            f"{DEFAULT_SCENARIO_NAME}."
+        ),
     )
     parser.add_argument("--pwm-min", type=int, default=DEFAULT_PWM_MIN)
     parser.add_argument("--pwm-max", type=int, default=DEFAULT_PWM_MAX)
@@ -271,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
             host=args.host,
             port=args.port,
             model_path=args.model_path,
+            scenario_name=args.scenario,
             pwm_min=args.pwm_min,
             pwm_max=args.pwm_max,
             thrust_to_weight=args.thrust_to_weight,

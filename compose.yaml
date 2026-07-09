@@ -15,7 +15,7 @@ x-sim-common: &sim-common
   environment:
     ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
     ARDUPILOT_REF: ${ARDUPILOT_REF:-92b0cd788ec29406f26c6f9c31d5ceedbd1cc538}
-    SCENARIO: ${SCENARIO:-default}
+    SCENARIO: ${SCENARIO:-landing_pad}
     CAMERA_ENABLED: ${CAMERA_ENABLED:-true}
     CAMERA_NAME: ${CAMERA_NAME:-front_cam}
     CAMERA_FRAME: ${CAMERA_FRAME:-front_cam}

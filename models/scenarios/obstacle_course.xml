@@ -1,0 +1,41 @@
+<mujoco model="obstacle_course_scenario">
+  <asset>
+    <material name="scenario_landing_pad_mat" rgba="0.10 0.80 0.35 0.80"/>
+    <material name="scenario_obstacle_mat" rgba="0.90 0.20 0.10 0.75"/>
+    <material name="scenario_gate_mat" rgba="0.15 0.45 1.00 0.90"/>
+    <material name="scenario_boundary_mat" rgba="1.00 0.85 0.05 0.90"/>
+  </asset>
+
+  <worldbody>
+    <geom name="scenario_landing_pad" type="cylinder" pos="0 0 0.01"
+          size="0.60 0.01" material="scenario_landing_pad_mat"
+          contype="1" conaffinity="1" friction="1.0 0.005 0.0001"/>
+    <geom name="scenario_obstacle_1" type="box" pos="1.8 -0.8 0.5"
+          size="0.225 0.225 0.5" material="scenario_obstacle_mat"
+          contype="1" conaffinity="1" friction="1.0 0.005 0.0001"/>
+    <geom name="scenario_obstacle_2" type="box" pos="3.6 1.1 0.5"
+          size="0.225 0.225 0.5" material="scenario_obstacle_mat"
+          contype="1" conaffinity="1" friction="1.0 0.005 0.0001"/>
+    <geom name="scenario_gate_left_post" type="box" pos="2.8 -0.8 0.8"
+          size="0.03 0.03 0.8" material="scenario_gate_mat"
+          contype="0" conaffinity="0"/>
+    <geom name="scenario_gate_right_post" type="box" pos="2.8 0.8 0.8"
+          size="0.03 0.03 0.8" material="scenario_gate_mat"
+          contype="0" conaffinity="0"/>
+    <geom name="scenario_gate_crossbar" type="box" pos="2.8 0 1.6"
+          size="0.03 0.80 0.03" material="scenario_gate_mat"
+          contype="0" conaffinity="0"/>
+    <geom name="scenario_boundary_north" type="box" pos="0 5 0.015"
+          size="5 0.025 0.015" material="scenario_boundary_mat"
+          contype="0" conaffinity="0"/>
+    <geom name="scenario_boundary_south" type="box" pos="0 -5 0.015"
+          size="5 0.025 0.015" material="scenario_boundary_mat"
+          contype="0" conaffinity="0"/>
+    <geom name="scenario_boundary_east" type="box" pos="5 0 0.015"
+          size="0.025 5 0.015" material="scenario_boundary_mat"
+          contype="0" conaffinity="0"/>
+    <geom name="scenario_boundary_west" type="box" pos="-5 0 0.015"
+          size="0.025 5 0.015" material="scenario_boundary_mat"
+          contype="0" conaffinity="0"/>
+  </worldbody>
+</mujoco>

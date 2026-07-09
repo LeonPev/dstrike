@@ -329,8 +329,8 @@ timestamps:
 ```
 
 The TF stream includes `world -> base_link` and `base_link -> rotor_*` site
-frames. Scenario markers include a landing pad, obstacles, a gate, and the
-scenario boundary.
+frames. Scenario markers are selected by `SCENARIO` and match the active MuJoCo
+scenario overlay.
 
 Start the integration stack in one terminal:
 
@@ -443,4 +443,57 @@ After the browser check succeeds, finish the ticket with:
 
 ```bash
 echo "PASS: DFD-012 RViz2 noVNC browser visualization passed"
+```
+
+## Viewing scenarios
+
+DFD-013 loads MuJoCo scenario overlays from `models/scenarios/` at physics
+startup. The same `SCENARIO` value also selects the RViz2 marker set published
+on `/sim/scenario_markers`.
+
+Available scenarios:
+
+```text
+empty_world      base ground plane only, no scenario markers
+landing_pad      green landing pad and yellow boundary
+obstacle_course  landing pad, red obstacles, blue gate, and yellow boundary
+```
+
+Start the browser-viewable stack with the landing-pad scenario:
+
+```bash
+make down
+SCENARIO=landing_pad make up-viz
+```
+
+Open:
+
+```text
+http://localhost:6080/vnc.html?autoconnect=true&resize=scale
+```
+
+Confirm the physics service loaded the selected XML:
+
+```bash
+docker compose logs physics | grep -E "scenario=landing_pad|scenario_xml"
+```
+
+Then switch to the obstacle course:
+
+```bash
+make down
+SCENARIO=obstacle_course make up-viz
+docker compose logs physics | grep -E "scenario=obstacle_course|scenario_xml"
+```
+
+Manual visual check:
+
+- `landing_pad` shows the green pad and yellow boundary, without red obstacles
+  or the blue gate.
+- `obstacle_course` adds two red obstacle blocks and a blue gate in both the
+  MuJoCo camera view and RViz2 scenario markers.
+- `/sim/scenario_markers` remains present after either scenario starts:
+
+```bash
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /sim/scenario_markers --once'
 ```

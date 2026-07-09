@@ -1,0 +1,3 @@
+<mujoco model="empty_world_scenario">
+  <worldbody/>
+</mujoco>

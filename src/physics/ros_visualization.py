@@ -7,6 +7,11 @@ import math
 import time
 from typing import Any, Iterable
 
+from src.physics.scenarios import (
+    ScenarioMarkerSpec,
+    scenario_from_name,
+)
+
 
 WORLD_FRAME = "world"
 ODOM_FRAME = "odom"
@@ -151,12 +156,13 @@ def quaternion_wxyz_to_xyzw(
 
 
 class SimVisualizationPublisher:
-    """Publish ground truth odometry, TF, and simple scenario markers."""
+    """Publish ground truth odometry, TF, and selected scenario markers."""
 
     def __init__(
         self,
         quad: Any,
         publish_rate_hz: float = DEFAULT_PUBLISH_RATE_HZ,
+        scenario_markers: Iterable[ScenarioMarkerSpec] | None = None,
     ) -> None:
         if publish_rate_hz <= 0.0:
             raise ValueError("publish_rate_hz must be positive")
@@ -199,6 +205,11 @@ class SimVisualizationPublisher:
         self._site_transforms = rotor_site_transforms_from_quad(quad)
         self._drone_marker_specs = drone_marker_specs(
             site_transform.translation_xyz for site_transform in self._site_transforms
+        )
+        self._scenario_marker_specs = tuple(
+            scenario_from_name(None).marker_specs
+            if scenario_markers is None
+            else scenario_markers
         )
         self._publish_period_s = 1.0 / publish_rate_hz
         self._last_publish_monotonic_s: float | None = None
@@ -310,13 +321,11 @@ class SimVisualizationPublisher:
         return transform
 
     def _build_scenario_markers(self, stamp: Any) -> Any:
-        markers = [
-            self._landing_pad_marker(stamp),
-            self._obstacle_marker(stamp, marker_id=1, x=2.0, y=-1.2),
-            self._obstacle_marker(stamp, marker_id=2, x=-2.4, y=1.6),
-            self._gate_marker(stamp),
-            self._boundary_marker(stamp),
-        ]
+        markers = [self._delete_all_scenario_markers(stamp)]
+        markers.extend(
+            self._scenario_shape_marker(stamp, spec)
+            for spec in self._scenario_marker_specs
+        )
         marker_array = self._marker_array_type()
         marker_array.markers = markers
         return marker_array
@@ -369,75 +378,40 @@ class SimVisualizationPublisher:
         marker.pose.orientation.w = 1.0
         return marker
 
-    def _landing_pad_marker(self, stamp: Any) -> Any:
+    def _delete_all_scenario_markers(self, stamp: Any) -> Any:
         from visualization_msgs.msg import Marker
 
-        marker = self._marker_base(stamp, "landing_pad", 0)
-        marker.type = Marker.CYLINDER
-        marker.pose.position.z = 0.01
-        marker.scale.x = 1.2
-        marker.scale.y = 1.2
-        marker.scale.z = 0.02
-        marker.color.r = 0.1
-        marker.color.g = 0.8
-        marker.color.b = 0.35
-        marker.color.a = 0.8
+        marker = self._marker_base(stamp, "scenario", 0)
+        marker.action = Marker.DELETEALL
         return marker
 
-    def _obstacle_marker(self, stamp: Any, marker_id: int, x: float, y: float) -> Any:
-        from visualization_msgs.msg import Marker
-
-        marker = self._marker_base(stamp, "obstacles", marker_id)
-        marker.type = Marker.CUBE
-        marker.pose.position.x = x
-        marker.pose.position.y = y
-        marker.pose.position.z = 0.5
-        marker.scale.x = 0.45
-        marker.scale.y = 0.45
-        marker.scale.z = 1.0
-        marker.color.r = 0.9
-        marker.color.g = 0.2
-        marker.color.b = 0.1
-        marker.color.a = 0.75
-        return marker
-
-    def _gate_marker(self, stamp: Any) -> Any:
+    def _scenario_shape_marker(self, stamp: Any, spec: ScenarioMarkerSpec) -> Any:
         from geometry_msgs.msg import Point
         from visualization_msgs.msg import Marker
 
-        marker = self._marker_base(stamp, "gates", 0)
-        marker.type = Marker.LINE_LIST
-        marker.scale.x = 0.04
-        marker.color.r = 0.15
-        marker.color.g = 0.45
-        marker.color.b = 1.0
-        marker.color.a = 0.9
+        marker = self._marker_base(stamp, spec.namespace, spec.marker_id)
+        if spec.shape == "cube":
+            marker.type = Marker.CUBE
+        elif spec.shape == "cylinder":
+            marker.type = Marker.CYLINDER
+        elif spec.shape == "line_list":
+            marker.type = Marker.LINE_LIST
+        elif spec.shape == "line_strip":
+            marker.type = Marker.LINE_STRIP
+        else:
+            raise ValueError(f"unsupported scenario marker shape: {spec.shape}")
+        marker.pose.position.x = spec.position_xyz[0]
+        marker.pose.position.y = spec.position_xyz[1]
+        marker.pose.position.z = spec.position_xyz[2]
+        marker.scale.x = spec.scale_xyz[0]
+        marker.scale.y = spec.scale_xyz[1]
+        marker.scale.z = spec.scale_xyz[2]
+        marker.color.r = spec.color_rgba[0]
+        marker.color.g = spec.color_rgba[1]
+        marker.color.b = spec.color_rgba[2]
+        marker.color.a = spec.color_rgba[3]
         marker.points = [
-            Point(x=1.0, y=2.0, z=0.0),
-            Point(x=1.0, y=2.0, z=1.6),
-            Point(x=2.4, y=2.0, z=0.0),
-            Point(x=2.4, y=2.0, z=1.6),
-            Point(x=1.0, y=2.0, z=1.6),
-            Point(x=2.4, y=2.0, z=1.6),
-        ]
-        return marker
-
-    def _boundary_marker(self, stamp: Any) -> Any:
-        from geometry_msgs.msg import Point
-        from visualization_msgs.msg import Marker
-
-        marker = self._marker_base(stamp, "scenario_boundary", 0)
-        marker.type = Marker.LINE_STRIP
-        marker.scale.x = 0.03
-        marker.color.r = 1.0
-        marker.color.g = 0.85
-        marker.color.b = 0.05
-        marker.color.a = 0.9
-        marker.points = [
-            Point(x=-5.0, y=-5.0, z=0.0),
-            Point(x=5.0, y=-5.0, z=0.0),
-            Point(x=5.0, y=5.0, z=0.0),
-            Point(x=-5.0, y=5.0, z=0.0),
-            Point(x=-5.0, y=-5.0, z=0.0),
+            Point(x=point[0], y=point[1], z=point[2])
+            for point in spec.points_xyz
         ]
         return marker

@@ -32,9 +32,18 @@ class QuadState:
 class MuJoCoQuad:
     """Load and step the minimal free-body quadrotor model."""
 
-    def __init__(self, model_path: str | Path = DEFAULT_MODEL_PATH) -> None:
+    def __init__(
+        self,
+        model_path: str | Path = DEFAULT_MODEL_PATH,
+        model_xml: str | None = None,
+        model_source: str | None = None,
+    ) -> None:
         self.model_path = Path(model_path)
-        self.model = mujoco.MjModel.from_xml_path(str(self.model_path))
+        self.model_source = model_source or str(self.model_path)
+        if model_xml is None:
+            self.model = mujoco.MjModel.from_xml_path(str(self.model_path))
+        else:
+            self.model = mujoco.MjModel.from_xml_string(model_xml)
         self.data = mujoco.MjData(self.model)
 
         self.body_id = mujoco.mj_name2id(
