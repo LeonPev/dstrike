@@ -1,4 +1,4 @@
-.PHONY: help preflight build up up-baseline baseline-heartbeat up-json-stub test-json-stub up-viz down logs shell-ros2 shell-sitl shell-physics test test-e2e
+.PHONY: help preflight build up up-baseline baseline-heartbeat up-json-stub test-json-stub test-mujoco-quad up-viz down logs shell-ros2 shell-sitl shell-physics test test-e2e
 
 help:
 	@printf '%s\n' \
@@ -11,6 +11,7 @@ help:
 		'  baseline-heartbeat  Wait for the baseline MAVLink heartbeat' \
 		'  up-json-stub   Start ArduCopter SITL with the JSON physics stub' \
 		'  test-json-stub Run JSON protocol stub unit tests in Docker' \
+		'  test-mujoco-quad  Run the minimal MuJoCo quad self-test in Docker' \
 		'  up-viz         Start the browser visualization placeholder on localhost:8765' \
 		'  down           Stop and remove Compose services' \
 		'  logs           Follow Compose service logs' \
@@ -40,6 +41,9 @@ up-json-stub:
 
 test-json-stub:
 	docker compose run --rm physics python3 -m pytest tests/test_ardupilot_json_stub.py
+
+test-mujoco-quad:
+	docker compose run --rm physics python3 -m src.physics.self_test
 
 up-viz:
 	docker compose --profile viz up -d viz

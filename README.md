@@ -209,3 +209,25 @@ Optional focused unit check:
 ```bash
 make test-json-stub
 ```
+
+## Minimal MuJoCo Quadrotor Model
+
+DFD-006 adds `models/quad.xml`, a no-GUI MuJoCo model with one free
+`base_link` body, placeholder mass and inertia, four rotor force application
+sites, and a fixed `front_cam` camera. The Python wrapper in
+`src/physics/mujoco_quad.py` loads the model, resets it, applies four motor
+thrust values, steps MuJoCo, and returns pose, velocity, angular velocity, and
+body acceleration.
+
+Run the self-test inside Docker:
+
+```bash
+docker compose run --rm physics python3 -m src.physics.self_test
+```
+
+The self-test proves zero thrust falls and hover-ish thrust remains bounded,
+then prints:
+
+```text
+PASS: DFD-006 MuJoCo quad self-test passed
+```
