@@ -3,6 +3,140 @@
 Headless, browser-viewable drone simulation stack for macOS using Docker
 Desktop for Mac.
 
+## One-command Docker Workflow
+
+DFD-016 is the happy path for a fresh macOS clone. The only required host
+software is Docker Desktop for Mac, including its Docker Engine and Docker
+Compose plugin, plus the macOS shell, Make, and a browser. Do not install host
+ROS 2, ArduPilot, MuJoCo, RViz2, noVNC, or Python packages for this project.
+
+Create local defaults, build the shared image, and start the full
+browser-viewable stack:
+
+```bash
+cp .env.example .env
+make build
+make up-viz
+```
+
+Open RViz2 through noVNC in a Mac browser:
+
+```text
+http://localhost:6080/vnc.html?autoconnect=true&resize=scale
+```
+
+The RViz2 desktop runs inside Docker and is streamed through noVNC on
+`127.0.0.1:6080` by default. Change `NOVNC_PORT` in `.env` if port `6080` is
+already in use.
+
+With the browser stack running, live topics should include:
+
+```text
+/drone/odom
+/sim/ground_truth/odom
+/tf
+/sim/scenario_markers
+/sim/camera/front/image_raw
+```
+
+Run the end-to-end smoke test and cleanup:
+
+```bash
+make test-e2e
+make down
+```
+
+`make test-e2e` intentionally resets the Compose project, starts the headless
+MuJoCo/SITL/ROS 2 stack, arms, commands takeoff, checks `/drone/odom`, and
+shuts the smoke-test stack down. Run `make up-viz` again after the smoke test
+when you want the browser viewer running.
+
+Expected DFD-016 success signals:
+
+```text
+Browser: RViz2 shows live TF, odometry, scenario markers, and camera topics.
+CLI: E2E PASS: heartbeat, arm, takeoff, odom altitude threshold reached
+PASS: DFD-016 one-command Docker workflow documented
+```
+
+After the browser and CLI checks pass, finish the ticket with:
+
+```bash
+echo "PASS: DFD-016 one-command Docker workflow documented"
+```
+
+### Expected services and ports
+
+| Service | Started by | Purpose | Ports |
+| --- | --- | --- | --- |
+| `sitl-json` | `make up-viz`, `make test-e2e` | ArduCopter SITL in JSON external-physics mode | Internal JSON UDP to `physics:9002`; internal MAVLink UDP to `ros2:14550` |
+| `physics` | `make up-viz`, `make test-e2e` | MuJoCo quad physics, ROS 2 ground-truth state, scenario markers, optional camera publishing | Internal UDP `9002` |
+| `ros2` | `make up-viz`, `make test-e2e` | Builds and runs the MAVLink bridge node | Internal UDP `14550` |
+| `viz` | `make up-viz` | RViz2 desktop streamed through noVNC | Host `127.0.0.1:6080` to container `6080/tcp` |
+
+The full browser stack is Docker-only. No ROS 2 DDS, MAVLink, MuJoCo, or
+ArduPilot ports are published to the Mac host except noVNC on `6080`.
+
+### Common failure checks
+
+No heartbeat:
+
+```bash
+docker compose logs sitl-json ros2 | grep -Ei "heartbeat|14550|serial0|mavlink|Resolved"
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /drone/heartbeat --once'
+```
+
+No JSON frames:
+
+```bash
+docker compose logs sitl-json physics | grep -E "JSON received|frame_count|pwm|thrust|Resolved physics"
+```
+
+EKF unhealthy:
+
+```bash
+docker compose logs sitl-json | grep -Ei "ekf|prearm|ahrs|unhealthy"
+make topic-hz TOPIC=/sim/ground_truth/odom
+make topic-hz TOPIC=/drone/odom
+```
+
+ROS 2 node not visible:
+
+```bash
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 node list'
+docker compose logs ros2 | grep -Ei "colcon|mavlink_bridge|error|traceback"
+```
+
+RViz2 opens but no topics are visible:
+
+```bash
+make topic-list
+docker compose logs viz | grep -Ei "rviz|ros|vnc|websockify|error"
+```
+
+Camera topic missing:
+
+```bash
+grep -E "CAMERA_ENABLED|CAMERA_TOPIC|CAMERA_NAME" .env
+docker compose logs physics | grep -Ei "camera|osmesa|render|image"
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && python3 scripts/image_probe.py /sim/camera/front/image_raw'
+```
+
+Docker CPU or memory too constrained:
+
+```bash
+make preflight
+docker stats
+```
+
+If the stack is slow to start, raise Docker Desktop CPU and memory limits,
+then reset the Compose project with:
+
+```bash
+make down
+make up-viz
+```
+
 ## Host Docker Preflight
 
 DFD-000 verifies only host-side Docker Desktop availability. Do not install ROS,
