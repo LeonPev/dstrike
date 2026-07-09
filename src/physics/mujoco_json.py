@@ -21,6 +21,7 @@ from src.physics.ardupilot_json_stub import (
 )
 from src.physics.frame_conventions import ardupilot_state_from_quad_state
 from src.physics.mujoco_quad import DEFAULT_MODEL_PATH, MuJoCoQuad
+from src.physics.ros_camera import CameraConfig, SimCameraPublisher
 from src.physics.ros_visualization import SimVisualizationPublisher
 
 
@@ -162,7 +163,13 @@ def serve(
     )
     clock = FixedStepClock(fixed_dt=quad.timestep, max_frame_dt=max_frame_dt)
     ros_visualization = SimVisualizationPublisher(quad)
+    camera_config = CameraConfig.from_env()
+    camera_publisher = (
+        SimCameraPublisher(quad, camera_config) if camera_config.enabled else None
+    )
     ros_visualization.publish(quad.state())
+    if camera_publisher is not None:
+        camera_publisher.publish()
     last_log_at: float | None = None
 
     try:
@@ -207,6 +214,8 @@ def serve(
                     else quad.state()
                 )
                 ros_visualization.maybe_publish(state)
+                if camera_publisher is not None:
+                    camera_publisher.maybe_publish()
                 state_payload, state_json = build_state_json(state)
                 udp.sendto(state_json, sender)
 
@@ -222,6 +231,8 @@ def serve(
                     )
                     last_log_at = now
     finally:
+        if camera_publisher is not None:
+            camera_publisher.close()
         ros_visualization.close()
 
 

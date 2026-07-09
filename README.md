@@ -351,3 +351,47 @@ from each topic, then prints:
 ```text
 PASS: DFD-010 ROS visualization state topics passed
 ```
+
+## MuJoCo Camera Image Publishing
+
+DFD-011 renders the fixed MuJoCo `front_cam` camera headlessly inside the
+`physics` service with `MUJOCO_GL=osmesa`, then publishes ROS 2 camera topics:
+
+```text
+/sim/camera/front/image_raw sensor_msgs/msg/Image
+/sim/camera/front/camera_info sensor_msgs/msg/CameraInfo
+```
+
+The camera defaults are configured through `.env` and Compose:
+
+```text
+CAMERA_ENABLED=true
+CAMERA_NAME=front_cam
+CAMERA_WIDTH=640
+CAMERA_HEIGHT=480
+CAMERA_FPS=10
+```
+
+Set `CAMERA_ENABLED=false` to keep physics stepping without creating the
+offscreen renderer or publishing camera topics.
+
+Start the integration stack in one terminal:
+
+```bash
+docker compose --profile mujoco up sitl-json physics ros2
+```
+
+Check the camera stream from another terminal:
+
+```bash
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic hz /sim/camera/front/image_raw'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /sim/camera/front/camera_info --once'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && python3 scripts/image_probe.py /sim/camera/front/image_raw'
+```
+
+The image probe prints width, height, encoding, FPS estimate, and pixel
+min/max, then prints:
+
+```text
+PASS: DFD-011 MuJoCo camera publishing passed
+```

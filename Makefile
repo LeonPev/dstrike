@@ -1,4 +1,4 @@
-.PHONY: help preflight build up up-baseline baseline-heartbeat up-mujoco probe-ros-visualization test-json-stub test-mujoco-quad test-frame-conventions test-ros-frame-conventions up-viz down logs shell-ros2 shell-sitl shell-physics test test-e2e
+.PHONY: help preflight build up up-baseline baseline-heartbeat up-mujoco probe-ros-visualization probe-camera-image test-json-stub test-mujoco-quad test-frame-conventions test-ros-frame-conventions up-viz down logs shell-ros2 shell-sitl shell-physics test test-e2e
 
 help:
 	@printf '%s\n' \
@@ -11,6 +11,7 @@ help:
 		'  baseline-heartbeat  Wait for the baseline MAVLink heartbeat' \
 		'  up-mujoco      Start ArduCopter SITL with MuJoCo JSON physics' \
 		'  probe-ros-visualization  Wait for DFD-010 ROS visualization topics' \
+		'  probe-camera-image  Probe DFD-011 MuJoCo camera image output' \
 		'  test-json-stub Run JSON protocol stub unit tests in Docker' \
 		'  test-mujoco-quad  Run the minimal MuJoCo quad self-test in Docker' \
 		'  test-frame-conventions  Run ENU/NED and altitude sign unit tests' \
@@ -44,6 +45,9 @@ up-mujoco:
 
 probe-ros-visualization:
 	docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && python3 scripts/ros_topic_probe.py /sim/ground_truth/odom /tf /sim/scenario_markers'
+
+probe-camera-image:
+	docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && python3 scripts/image_probe.py /sim/camera/front/image_raw'
 
 test-json-stub:
 	docker compose run --rm physics python3 -m pytest tests/test_ardupilot_json_stub.py
