@@ -170,41 +170,26 @@ base mode, custom mode, and the ticket PASS line:
 PASS: DFD-004 baseline SITL heartbeat passed
 ```
 
-## ArduPilot JSON Protocol Stub
+## ArduPilot JSON Protocol Parser
 
-DFD-005 adds a `json-stub` Compose profile with two services:
+DFD-005 added the binary PWM parser and the original static JSON protocol
+stub. DFD-007 replaces the Compose runtime with the real MuJoCo-backed
+`physics` service, but the parser and focused unit tests remain useful.
+
+The parser decodes ArduPilot's binary PWM packet, supports the 16-channel magic
+`18458`, detects the 32-channel magic `29569`, and keeps the mandatory JSON
+field shape used by the live physics service:
 
 ```text
-sitl-json -> resolves physics-stub, then starts --model JSON:<physics-stub-ip>
-physics-stub -> UDP 9002 ArduPilot JSON external-physics endpoint
+timestamp
+imu.gyro
+imu.accel_body
+position
+velocity
+quaternion
 ```
 
-ArduPilot's SITL socket parser accepts numeric IPv4 addresses for this UDP path,
-so the Compose service resolves `physics-stub` inside the container before
-launching `sim_vehicle.py`.
-
-The stub decodes ArduPilot's binary PWM packet, supports the 16-channel magic
-`18458`, detects and logs the 32-channel magic `29569`, samples log lines with
-`magic`, `frame_rate`, `frame_count`, and the first four PWM values, then
-replies to the exact UDP sender with newline-terminated JSON containing
-`timestamp`, `imu.gyro`, `imu.accel_body`, `position`, `velocity`, and
-`quaternion`.
-
-Run the stub stack in one terminal:
-
-```bash
-docker compose --profile json-stub up sitl-json physics-stub
-```
-
-Check the protocol logs from another terminal:
-
-```bash
-docker compose logs physics-stub | grep -E "magic|frame_rate|frame_count|pwm"
-docker compose logs sitl-json | grep -A8 "JSON received"
-echo "PASS: DFD-005 JSON protocol stub passed"
-```
-
-Optional focused unit check:
+Run the focused parser unit check:
 
 ```bash
 make test-json-stub
@@ -230,4 +215,40 @@ then prints:
 
 ```text
 PASS: DFD-006 MuJoCo quad self-test passed
+```
+
+## MuJoCo JSON SITL Integration
+
+DFD-007 connects ArduCopter SITL's JSON external-physics mode to the real
+MuJoCo quad model:
+
+```text
+sitl-json -> resolves physics, then starts --model JSON:<physics-ip>
+physics -> UDP 9002 MuJoCo JSON external-physics endpoint
+```
+
+The physics service receives ArduPilot PWM frames, maps PWM channels 1-4 into
+rotor thrust, advances MuJoCo with bounded fixed substeps, and replies with
+newline-terminated JSON containing NED `position`/`velocity`, FRD body
+`imu.gyro`/`imu.accel_body`, and scalar-first `quaternion`. It intentionally
+does not send Euler `attitude`.
+
+Run the focused convention test:
+
+```bash
+docker compose run --rm physics pytest tests/test_frame_conventions.py
+```
+
+Run the integration stack in one terminal:
+
+```bash
+docker compose --profile mujoco up sitl-json physics
+```
+
+Check the logs from another terminal:
+
+```bash
+docker compose logs physics | grep -E "frame_count|timestep|pwm|thrust|ned"
+docker compose logs sitl-json | grep -A8 "JSON received"
+echo "PASS: DFD-007 MuJoCo JSON integration passed"
 ```

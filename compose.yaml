@@ -30,15 +30,11 @@ services:
 
   physics:
     <<: *sim-common
-    command: ["bash", "-lc", "sleep infinity"]
-
-  physics-stub:
-    <<: *sim-common
-    profiles: ["json-stub"]
+    profiles: ["mujoco"]
     init: true
     expose:
       - "9002/udp"
-    command: ["python3", "-m", "src.physics.ardupilot_json_stub"]
+    command: ["python3", "-m", "src.physics.mujoco_json"]
 
   ros2:
     <<: *sim-common
@@ -69,9 +65,9 @@ services:
 
   sitl-json:
     <<: *sim-common
-    profiles: ["json-stub"]
+    profiles: ["mujoco"]
     depends_on:
-      - physics-stub
+      - physics
     init: true
     user: ardupilot
     command:
@@ -83,16 +79,16 @@ services:
         export USER=ardupilot
         export SITL_RITW_TERMINAL=bash
         cd /opt/ardupilot
-        PHYSICS_STUB_HOST=physics-stub
-        PHYSICS_STUB_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("physics-stub"))')"
-        test -n "$${PHYSICS_STUB_IP}"
+        PHYSICS_HOST=physics
+        PHYSICS_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("physics"))')"
+        test -n "$${PHYSICS_IP}"
         echo "Starting ArduCopter SITL in JSON external-physics mode"
-        echo "JSON model target service: --model JSON:$${PHYSICS_STUB_HOST}"
-        echo "Resolved $${PHYSICS_STUB_HOST} to $${PHYSICS_STUB_IP} for ArduPilot numeric IPv4"
+        echo "JSON model target service: --model JSON:$${PHYSICS_HOST}"
+        echo "Resolved $${PHYSICS_HOST} to $${PHYSICS_IP} for ArduPilot numeric IPv4"
         echo "MAVProxy disabled via --no-mavproxy"
         echo "ArduPilot child output inherited via SITL_RITW_TERMINAL=bash"
         echo "Direct SITL serial0 UDP sink: --serial0=udpclient:127.0.0.1:14550"
-        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --model "JSON:$${PHYSICS_STUB_IP}" --sitl-instance-args=--serial0=udpclient:127.0.0.1:14550
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --model "JSON:$${PHYSICS_IP}" --sitl-instance-args=--serial0=udpclient:127.0.0.1:14550
 
   viz:
     <<: *sim-common

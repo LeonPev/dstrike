@@ -69,6 +69,8 @@ RUN export USER=ardupilot HOME=/home/ardupilot \
 USER root
 
 RUN git config --system --add safe.directory /opt/ardupilot \
+    && printf '%s\n' '#!/bin/sh' 'exec python3 -m pytest "$@"' > /usr/local/bin/pytest \
+    && chmod 0755 /usr/local/bin/pytest \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace

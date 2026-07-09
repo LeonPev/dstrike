@@ -1,4 +1,4 @@
-.PHONY: help preflight build up up-baseline baseline-heartbeat up-json-stub test-json-stub test-mujoco-quad up-viz down logs shell-ros2 shell-sitl shell-physics test test-e2e
+.PHONY: help preflight build up up-baseline baseline-heartbeat up-mujoco test-json-stub test-mujoco-quad test-frame-conventions up-viz down logs shell-ros2 shell-sitl shell-physics test test-e2e
 
 help:
 	@printf '%s\n' \
@@ -9,9 +9,10 @@ help:
 		'  up             Start headless placeholder services' \
 		'  up-baseline    Start baseline ArduCopter SITL and ROS 2 receiver' \
 		'  baseline-heartbeat  Wait for the baseline MAVLink heartbeat' \
-		'  up-json-stub   Start ArduCopter SITL with the JSON physics stub' \
+		'  up-mujoco      Start ArduCopter SITL with MuJoCo JSON physics' \
 		'  test-json-stub Run JSON protocol stub unit tests in Docker' \
 		'  test-mujoco-quad  Run the minimal MuJoCo quad self-test in Docker' \
+		'  test-frame-conventions  Run ENU/NED and altitude sign unit tests' \
 		'  up-viz         Start the browser visualization placeholder on localhost:8765' \
 		'  down           Stop and remove Compose services' \
 		'  logs           Follow Compose service logs' \
@@ -36,14 +37,17 @@ up-baseline:
 baseline-heartbeat:
 	docker compose exec ros2 python3 scripts/mavlink_wait_heartbeat.py --connect udp:0.0.0.0:14550
 
-up-json-stub:
-	docker compose --profile json-stub up sitl-json physics-stub
+up-mujoco:
+	docker compose --profile mujoco up sitl-json physics
 
 test-json-stub:
 	docker compose run --rm physics python3 -m pytest tests/test_ardupilot_json_stub.py
 
 test-mujoco-quad:
 	docker compose run --rm physics python3 -m src.physics.self_test
+
+test-frame-conventions:
+	docker compose run --rm physics pytest tests/test_frame_conventions.py
 
 up-viz:
 	docker compose --profile viz up -d viz
