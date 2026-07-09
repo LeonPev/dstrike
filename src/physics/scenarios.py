@@ -1,4 +1,4 @@
-"""Scenario selection, MuJoCo XML overlays, and RViz marker metadata."""
+"""Scenario selection and MuJoCo-backed RViz marker metadata."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
-from typing import Iterable, Mapping
+from typing import Mapping
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +23,7 @@ class ScenarioMarkerSpec:
     position_xyz: tuple[float, float, float]
     scale_xyz: tuple[float, float, float]
     color_rgba: tuple[float, float, float, float]
+    orientation_xyzw: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
     points_xyz: tuple[tuple[float, float, float], ...] = ()
 
 
@@ -46,18 +47,22 @@ def scenario_from_name(name: str | None) -> ScenarioConfig:
     if normalized_name == "default":
         normalized_name = DEFAULT_SCENARIO_NAME
 
-    try:
-        marker_specs = _SCENARIO_MARKERS[normalized_name]
-    except KeyError as exc:
-        allowed = ", ".join(sorted(_SCENARIO_MARKERS))
+    xml_path = SCENARIOS_DIR / f"{normalized_name}.xml"
+    if not xml_path.is_file():
+        allowed = ", ".join(
+            sorted(
+                scenario_xml_path.stem
+                for scenario_xml_path in SCENARIOS_DIR.glob("*.xml")
+            )
+        )
         raise ValueError(
             f"unknown scenario {name!r}; expected one of: {allowed}"
-        ) from exc
+        )
 
     return ScenarioConfig(
         name=normalized_name,
-        xml_path=SCENARIOS_DIR / f"{normalized_name}.xml",
-        marker_specs=marker_specs,
+        xml_path=xml_path,
+        marker_specs=scenario_marker_specs_from_xml(xml_path),
     )
 
 
@@ -89,6 +94,53 @@ def build_scenario_model_xml(
     return ET.tostring(base_root, encoding="unicode")
 
 
+def scenario_marker_specs_from_xml(
+    xml_path: str | Path,
+) -> tuple[ScenarioMarkerSpec, ...]:
+    """Build RViz markers from the same MuJoCo scenario geoms used by physics."""
+    root = ET.parse(xml_path).getroot()
+    material_colors = _material_colors(root)
+    marker_specs: list[ScenarioMarkerSpec] = []
+    namespace_counts: dict[str, int] = {}
+
+    for geom in root.findall("./worldbody/geom"):
+        geom_name = geom.attrib.get("name", "")
+        geom_type = geom.attrib.get("type", "")
+        if not geom_name.startswith("scenario_"):
+            continue
+
+        if geom_type == "box":
+            shape = "cube"
+            size = _parse_float_tuple(geom.attrib.get("size", ""), 3, geom_name)
+            scale_xyz = (2.0 * size[0], 2.0 * size[1], 2.0 * size[2])
+        elif geom_type == "cylinder":
+            shape = "cylinder"
+            size = _parse_float_tuple(geom.attrib.get("size", ""), 2, geom_name)
+            scale_xyz = (2.0 * size[0], 2.0 * size[0], 2.0 * size[1])
+        else:
+            continue
+
+        namespace = _namespace_from_geom_name(geom_name)
+        marker_id = namespace_counts.get(namespace, 0)
+        namespace_counts[namespace] = marker_id + 1
+        marker_specs.append(
+            ScenarioMarkerSpec(
+                namespace=namespace,
+                marker_id=marker_id,
+                shape=shape,
+                position_xyz=_parse_float_tuple(
+                    geom.attrib.get("pos", "0 0 0"),
+                    3,
+                    geom_name,
+                ),
+                scale_xyz=scale_xyz,
+                color_rgba=_geom_color_rgba(geom, material_colors),
+            )
+        )
+
+    return tuple(marker_specs)
+
+
 def _merge_section_children(
     base_root: ET.Element,
     scenario_root: ET.Element,
@@ -103,106 +155,52 @@ def _merge_section_children(
             base_section.append(child)
 
 
-def _marker(
-    namespace: str,
-    marker_id: int,
-    shape: str,
-    position_xyz: Iterable[float],
-    scale_xyz: Iterable[float],
-    color_rgba: Iterable[float],
-    points_xyz: Iterable[Iterable[float]] = (),
-) -> ScenarioMarkerSpec:
-    return ScenarioMarkerSpec(
-        namespace=namespace,
-        marker_id=marker_id,
-        shape=shape,
-        position_xyz=_tuple3(position_xyz),
-        scale_xyz=_tuple3(scale_xyz),
-        color_rgba=_tuple4(color_rgba),
-        points_xyz=tuple(_tuple3(point) for point in points_xyz),
-    )
+def _material_colors(root: ET.Element) -> dict[str, tuple[float, float, float, float]]:
+    colors: dict[str, tuple[float, float, float, float]] = {}
+    for material in root.findall("./asset/material"):
+        name = material.attrib.get("name")
+        rgba = material.attrib.get("rgba")
+        if name and rgba:
+            colors[name] = _parse_float_tuple(rgba, 4, name)
+    return colors
 
 
-def _tuple3(values: Iterable[float]) -> tuple[float, float, float]:
-    value_tuple = tuple(float(value) for value in values)
-    if len(value_tuple) != 3:
-        raise ValueError("expected exactly three values")
-    return value_tuple
+def _geom_color_rgba(
+    geom: ET.Element,
+    material_colors: Mapping[str, tuple[float, float, float, float]],
+) -> tuple[float, float, float, float]:
+    if "rgba" in geom.attrib:
+        return _parse_float_tuple(
+            geom.attrib["rgba"],
+            4,
+            geom.attrib.get("name", "geom"),
+        )
+    material_name = geom.attrib.get("material")
+    if material_name and material_name in material_colors:
+        return material_colors[material_name]
+    return (0.8, 0.8, 0.8, 1.0)
 
 
-def _tuple4(values: Iterable[float]) -> tuple[float, float, float, float]:
-    value_tuple = tuple(float(value) for value in values)
-    if len(value_tuple) != 4:
-        raise ValueError("expected exactly four values")
-    return value_tuple
+def _namespace_from_geom_name(geom_name: str) -> str:
+    if geom_name == "scenario_landing_pad":
+        return "landing_pad"
+    if geom_name.startswith("scenario_obstacle_"):
+        return "obstacles"
+    if geom_name.startswith("scenario_gate_"):
+        return "gates"
+    if geom_name.startswith("scenario_boundary_"):
+        return "scenario_boundary"
+    return geom_name.removeprefix("scenario_")
 
 
-LANDING_PAD_MARKER = _marker(
-    namespace="landing_pad",
-    marker_id=0,
-    shape="cylinder",
-    position_xyz=(0.0, 0.0, 0.01),
-    scale_xyz=(1.2, 1.2, 0.02),
-    color_rgba=(0.1, 0.8, 0.35, 0.8),
-)
-BOUNDARY_MARKER = _marker(
-    namespace="scenario_boundary",
-    marker_id=0,
-    shape="line_strip",
-    position_xyz=(0.0, 0.0, 0.0),
-    scale_xyz=(0.03, 0.0, 0.0),
-    color_rgba=(1.0, 0.85, 0.05, 0.9),
-    points_xyz=(
-        (-5.0, -5.0, 0.02),
-        (5.0, -5.0, 0.02),
-        (5.0, 5.0, 0.02),
-        (-5.0, 5.0, 0.02),
-        (-5.0, -5.0, 0.02),
-    ),
-)
-OBSTACLE_MARKERS = (
-    _marker(
-        namespace="obstacles",
-        marker_id=1,
-        shape="cube",
-        position_xyz=(1.8, -0.8, 0.5),
-        scale_xyz=(0.45, 0.45, 1.0),
-        color_rgba=(0.9, 0.2, 0.1, 0.75),
-    ),
-    _marker(
-        namespace="obstacles",
-        marker_id=2,
-        shape="cube",
-        position_xyz=(3.6, 1.1, 0.5),
-        scale_xyz=(0.45, 0.45, 1.0),
-        color_rgba=(0.9, 0.2, 0.1, 0.75),
-    ),
-)
-GATE_MARKER = _marker(
-    namespace="gates",
-    marker_id=0,
-    shape="line_list",
-    position_xyz=(0.0, 0.0, 0.0),
-    scale_xyz=(0.04, 0.0, 0.0),
-    color_rgba=(0.15, 0.45, 1.0, 0.9),
-    points_xyz=(
-        (2.8, -0.8, 0.0),
-        (2.8, -0.8, 1.6),
-        (2.8, 0.8, 0.0),
-        (2.8, 0.8, 1.6),
-        (2.8, -0.8, 1.6),
-        (2.8, 0.8, 1.6),
-    ),
-)
-
-
-_SCENARIO_MARKERS: dict[str, tuple[ScenarioMarkerSpec, ...]] = {
-    "empty_world": (),
-    "landing_pad": (LANDING_PAD_MARKER, BOUNDARY_MARKER),
-    "obstacle_course": (
-        LANDING_PAD_MARKER,
-        *OBSTACLE_MARKERS,
-        GATE_MARKER,
-        BOUNDARY_MARKER,
-    ),
-}
+def _parse_float_tuple(
+    text: str,
+    expected_count: int,
+    context: str,
+) -> tuple[float, ...]:
+    values = tuple(float(value) for value in text.split())
+    if len(values) != expected_count:
+        raise ValueError(
+            f"{context} expected {expected_count} float values, got {len(values)}"
+        )
+    return values
