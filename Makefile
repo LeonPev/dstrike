@@ -16,7 +16,7 @@ help:
 		'  test-mujoco-quad  Run the minimal MuJoCo quad self-test in Docker' \
 		'  test-frame-conventions  Run ENU/NED and altitude sign unit tests' \
 		'  test-ros-frame-conventions  Run ROS odometry frame-convention unit tests' \
-		'  up-viz         Start the browser visualization placeholder on localhost:8765' \
+		'  up-viz         Start MuJoCo, ROS 2, and RViz2/noVNC on localhost:6080' \
 		'  down           Stop and remove Compose services' \
 		'  logs           Follow Compose service logs' \
 		'  shell-ros2     Open a shell in the ros2 service image' \
@@ -62,10 +62,10 @@ test-ros-frame-conventions:
 	docker compose run --rm ros2 pytest tests/test_ros_frame_conventions.py
 
 up-viz:
-	docker compose --profile viz up -d viz
+	docker compose --profile mujoco --profile viz up -d sitl-json physics ros2 viz
 
 down:
-	docker compose down
+	docker compose --profile baseline --profile mujoco --profile viz down
 
 logs:
 	docker compose logs -f

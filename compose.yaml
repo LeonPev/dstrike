@@ -24,6 +24,7 @@ x-sim-common: &sim-common
     CAMERA_FPS: ${CAMERA_FPS:-10}
     CAMERA_TOPIC: ${CAMERA_TOPIC:-/sim/camera/front/image_raw}
     CAMERA_INFO_TOPIC: ${CAMERA_INFO_TOPIC:-/sim/camera/front/camera_info}
+    LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-1}
   tty: true
   stdin_open: true
 
@@ -107,9 +108,16 @@ services:
   viz:
     <<: *sim-common
     profiles: ["viz"]
+    depends_on:
+      - ros2
+      - physics
     ports:
-      - "${FOXGLOVE_PORT:-8765}:8765"
-    command: ["bash", "-lc", "sleep infinity"]
+      - "127.0.0.1:${NOVNC_PORT:-6080}:6080"
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      DISPLAY: ":1"
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    command: ["bash", "-lc", "scripts/start_rviz_novnc.sh"]
 
   test:
     <<: *sim-common

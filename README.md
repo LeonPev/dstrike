@@ -79,7 +79,7 @@ make test
 The placeholder services use one shared image, mount this repository at
 `/workspace`, and set `/workspace` as the container working directory. Later
 tickets replace the placeholder commands with ArduPilot SITL, MuJoCo physics,
-ROS 2 bridge/control nodes, and Foxglove visualization.
+ROS 2 bridge/control nodes, and local browser visualization.
 
 DFD-001 manual checks:
 
@@ -102,7 +102,7 @@ DFD-002 manual checks:
 ```bash
 make build
 docker compose run --rm ros2 bash -lc 'python3 -c "import mujoco, rclpy, pymavlink; print(\"ok\")"'
-docker compose run --rm ros2 bash -lc 'ros2 launch foxglove_bridge foxglove_bridge_launch.xml --show-args >/dev/null && echo foxglove-ok'
+docker compose run --rm ros2 bash -lc 'command -v rviz2 && test -f /usr/share/novnc/vnc.html && command -v websockify && echo rviz-novnc-ok'
 docker compose run --rm physics python3 -m src.physics.render_smoke
 ```
 
@@ -394,4 +394,44 @@ min/max, then prints:
 
 ```text
 PASS: DFD-011 MuJoCo camera publishing passed
+```
+
+## RViz2 noVNC Browser Visualization
+
+DFD-012 runs RViz2 inside Docker and exposes that desktop through noVNC on the
+Mac loopback interface. No host ROS, RViz2, MuJoCo, or ArduPilot install is
+required.
+
+Start the browser-viewable stack:
+
+```bash
+make up-viz
+```
+
+Open the local viewer in a Mac browser:
+
+```text
+http://localhost:6080/vnc.html?autoconnect=true&resize=scale
+```
+
+Confirm the viewer service started:
+
+```bash
+docker compose logs viz | grep -Ei "rviz|vnc|websockify|xvfb|fluxbox"
+```
+
+Confirm the visualization topics are present:
+
+```bash
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic list | grep -E "/drone/odom|/sim/ground_truth/odom|/tf|/sim/scenario_markers|/sim/camera/front/image_raw"'
+```
+
+The RViz2 config at `config/drone.rviz` uses fixed frame `world` and loads
+displays for TF, MAVLink-derived odometry, MuJoCo ground-truth odometry,
+scenario markers, and the front camera image stream.
+
+After the browser check succeeds, finish the ticket with:
+
+```bash
+echo "PASS: DFD-012 RViz2 noVNC browser visualization passed"
 ```

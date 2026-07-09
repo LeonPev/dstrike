@@ -7,7 +7,8 @@ ARG ARDUPILOT_REF=92b0cd788ec29406f26c6f9c31d5ceedbd1cc538
 ENV ARDUPILOT_REF=${ARDUPILOT_REF} \
     MUJOCO_GL=osmesa \
     ROS_DOMAIN_ID=42 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    LIBGL_ALWAYS_SOFTWARE=1
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         git \
@@ -31,8 +32,20 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
         ros-humble-visualization-msgs \
         ros-humble-tf2-ros \
         ros-humble-rosgraph-msgs \
-        ros-humble-foxglove-bridge \
+        ros-humble-rviz2 \
+        ros-humble-image-transport \
+        ros-humble-tf2-tools \
+        xvfb \
+        x11vnc \
+        novnc \
+        websockify \
+        fluxbox \
+        dbus-x11 \
+        libxkbcommon-x11-0 \
+        libxcb-xinerama0 \
         libgl1 \
+        libgl1-mesa-dri \
+        mesa-utils \
         libglfw3 \
         libosmesa6 \
         libegl1 \
