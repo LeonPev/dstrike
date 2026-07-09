@@ -93,19 +93,18 @@ class MuJoCoQuad:
             mujoco.mj_forward(self.model, self.data)
             body_rotation = self.data.xmat[self.body_id].reshape(3, 3)
             thrust_axis_world = body_rotation @ np.array([0.0, 0.0, 1.0])
-
-            for site_id, thrust in zip(self.rotor_site_ids, thrusts):
-                force_world = thrust_axis_world * thrust
-                point_world = self.data.site_xpos[site_id]
-                mujoco.mj_applyFT(
-                    self.model,
-                    self.data,
-                    force_world,
-                    np.zeros(3),
-                    point_world,
-                    self.body_id,
-                    self.data.qfrc_applied,
-                )
+            # Keep the first smoke-test model attitude-stable; detailed rotor
+            # torques can be introduced once the end-to-end stack is reliable.
+            force_world = thrust_axis_world * float(np.sum(thrusts))
+            mujoco.mj_applyFT(
+                self.model,
+                self.data,
+                force_world,
+                np.zeros(3),
+                self.data.xipos[self.body_id],
+                self.body_id,
+                self.data.qfrc_applied,
+            )
 
             mujoco.mj_step(self.model, self.data)
 
@@ -113,7 +112,8 @@ class MuJoCoQuad:
 
     def state(self) -> QuadState:
         body_rotation = self.data.xmat[self.body_id].reshape(3, 3)
-        body_acceleration = body_rotation.T @ self.data.qacc[0:3]
+        world_specific_force = self.data.qacc[0:3] - self.model.opt.gravity
+        body_acceleration = body_rotation.T @ world_specific_force
         return QuadState(
             time=float(self.data.time),
             position=np.array(self.data.qpos[0:3], dtype=float),

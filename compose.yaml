@@ -70,11 +70,15 @@ services:
         export HOME=/home/ardupilot
         export USER=ardupilot
         cd /opt/ardupilot
+        ROS2_HOST=ros2
+        ROS2_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("ros2"))')"
+        test -n "$${ROS2_IP}"
         echo "Starting baseline ArduCopter SITL with built-in physics"
         echo "MAVProxy disabled via --no-mavproxy"
-        echo "Explicit MAVLink route: --out=udp:ros2:14550"
-        echo "Direct SITL serial0 route: --serial0=udpclient:ros2:14550"
-        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --out=udp:ros2:14550 --sitl-instance-args=--serial0=udpclient:ros2:14550
+        echo "Resolved $${ROS2_HOST} to $${ROS2_IP} for ArduPilot numeric IPv4"
+        echo "Explicit MAVLink route: --out=udp:$${ROS2_IP}:14550"
+        echo "Direct SITL serial0 route: --serial0=udpclient:$${ROS2_IP}:14550"
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --out=udp:$${ROS2_IP}:14550 --sitl-instance-args=--serial0=udpclient:$${ROS2_IP}:14550
 
   sitl-json:
     <<: *sim-common
@@ -95,15 +99,19 @@ services:
         cd /opt/ardupilot
         PHYSICS_HOST=physics
         PHYSICS_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("physics"))')"
+        ROS2_HOST=ros2
+        ROS2_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("ros2"))')"
         test -n "$${PHYSICS_IP}"
+        test -n "$${ROS2_IP}"
         echo "Starting ArduCopter SITL in JSON external-physics mode"
         echo "JSON model target service: --model JSON:$${PHYSICS_HOST}"
         echo "Resolved $${PHYSICS_HOST} to $${PHYSICS_IP} for ArduPilot numeric IPv4"
+        echo "Resolved $${ROS2_HOST} to $${ROS2_IP} for ArduPilot numeric IPv4"
         echo "MAVProxy disabled via --no-mavproxy"
         echo "ArduPilot child output inherited via SITL_RITW_TERMINAL=bash"
         echo "ROS 2 MAVLink stream params: --add-param-file=/workspace/config/ros2_mavlink_streams.parm"
-        echo "Direct SITL serial0 UDP sink: --serial0=udpclient:ros2:14550"
-        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --model "JSON:$${PHYSICS_IP}" --add-param-file=/workspace/config/ros2_mavlink_streams.parm --sitl-instance-args=--serial0=udpclient:ros2:14550
+        echo "Direct SITL serial0 UDP sink: --serial0=udpclient:$${ROS2_IP}:14550"
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --model "JSON:$${PHYSICS_IP}" --add-param-file=/workspace/config/ros2_mavlink_streams.parm --sitl-instance-args=--serial0=udpclient:$${ROS2_IP}:14550
 
   viz:
     <<: *sim-common

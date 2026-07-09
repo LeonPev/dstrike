@@ -149,6 +149,9 @@ sitl-baseline -> udp:ros2:14550
 The service keeps the planned `sim_vehicle.py ... --no-mavproxy
 --out=udp:ros2:14550` shape and passes `--serial0=udpclient:ros2:14550`
 directly to the SITL binary so MAVLink still flows without MAVProxy.
+Compose resolves the `ros2` service name to its numeric container IPv4 before
+passing the `udpclient` argument to ArduPilot, because SITL expects a numeric
+UDP target address.
 
 Start the baseline stack in one terminal:
 
@@ -226,6 +229,10 @@ MuJoCo quad model:
 sitl-json -> resolves physics, then starts --model JSON:<physics-ip>
 physics -> UDP 9002 MuJoCo JSON external-physics endpoint
 ```
+
+The `sitl-json` service also resolves the `ros2` service name to a numeric
+container IPv4 before passing `--serial0=udpclient:<ros2-ip>:14550`, which keeps
+MAVLink command traffic bidirectional.
 
 The physics service receives ArduPilot PWM frames, maps PWM channels 1-4 into
 rotor thrust, advances MuJoCo with bounded fixed substeps, and replies with
@@ -496,4 +503,38 @@ Manual visual check:
 
 ```bash
 docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /sim/scenario_markers --once'
+```
+
+## End-to-end takeoff smoke test
+
+DFD-014 adds a one-command Docker Compose smoke test for the full headless
+MuJoCo/SITL/ROS 2 path. The target resets the local Compose project, starts the
+MuJoCo profile, waits for the MAVLink heartbeat bridged into ROS 2, verifies
+the bridge publishers and command subscriptions, arms, commands a 2 m takeoff,
+and monitors `/drone/odom` until ROS ENU/z-up altitude exceeds 1 m. It then
+sends best-effort land and disarm cleanup commands.
+
+The ROS bridge force-arms SITL for this Docker-only smoke path so transient
+headless timing/EKF pre-arm checks do not block the test. This repository is
+not configured for hardware control.
+
+Run:
+
+```bash
+make test-e2e
+```
+
+Success ends with:
+
+```text
+E2E PASS: heartbeat, arm, takeoff, odom altitude threshold reached
+```
+
+Manual debugging flow:
+
+```bash
+docker compose --profile mujoco up -d sitl-json physics ros2
+docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash && python3 scripts/e2e_takeoff.py'
+docker compose logs sitl-json physics ros2
+make down
 ```

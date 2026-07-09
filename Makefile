@@ -23,7 +23,7 @@ help:
 		'  shell-sitl     Open a shell in the sitl service image' \
 		'  shell-physics  Open a shell in the physics service image' \
 		'  test           Run scaffold smoke checks in Docker' \
-		'  test-e2e       Run scaffold e2e placeholder checks in Docker'
+		'  test-e2e       Run full MuJoCo/SITL/ROS 2 takeoff E2E smoke test'
 
 preflight:
 	@sh scripts/preflight.sh
@@ -83,4 +83,9 @@ test:
 	docker compose --profile test run --rm test
 
 test-e2e:
-	docker compose --profile test run --rm test bash -lc 'test -f /workspace/compose.yaml && test -d /workspace/models/scenarios && printf "scaffold-e2e-ok\n"'
+	@status=0; \
+	docker compose --profile baseline --profile mujoco --profile viz down --remove-orphans || status=$$?; \
+	if [ $$status -eq 0 ]; then docker compose --profile mujoco up -d sitl-json physics ros2 || status=$$?; fi; \
+	if [ $$status -eq 0 ]; then docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash && python3 scripts/e2e_takeoff.py' || status=$$?; fi; \
+	docker compose --profile baseline --profile mujoco --profile viz down || true; \
+	exit $$status
