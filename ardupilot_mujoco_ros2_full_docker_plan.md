@@ -1,6 +1,6 @@
 # Full Docker Setup Plan: ArduPilot + MuJoCo CPU + ROS 2 + RViz2/noVNC on macOS
 
-Goal: run the full drone simulation stack with Docker Desktop for Mac only. No host installs are allowed except Docker Desktop, its Docker Engine, and the Docker Compose plugin. Keep the first version headless and browser-viewable.
+Goal: build a fully Dockerized, local-only drone simulation stack on macOS using ArduPilot SITL, MuJoCo CPU physics, ROS 2, and RViz2/noVNC.
 
 Core architecture:
 
@@ -23,7 +23,7 @@ Use one ticket at a time with Codex. Do not move to the next ticket until the De
 
 ---
 
-## DFD-001 — Create repository scaffold
+## DCK-001 — Create repository scaffold
 
 **Codex task**
 Create the repo layout and minimal developer commands.
@@ -64,7 +64,7 @@ Done when `docker compose config` exits successfully and no command requires ROS
 
 ---
 
-## DFD-002 — Build the base Docker image
+## DCK-002 — Build the base Docker image
 
 **Codex task**
 Implement `docker/Dockerfile` using `ros:humble-ros-base`.
@@ -104,7 +104,7 @@ Done when Python imports work and RViz2/noVNC commands exist inside Docker.
 
 ---
 
-## DFD-003 — Pin and build ArduPilot SITL inside Docker
+## DCK-003 — Pin and build ArduPilot SITL inside Docker
 
 **Codex task**
 Add an ArduPilot source/build step to the image or a named Docker volume.
@@ -140,7 +140,7 @@ Done when the `arducopter` binary exists and `sim_vehicle.py` is executable insi
 
 ---
 
-## DFD-004 — Start baseline ArduCopter SITL with built-in physics
+## DCK-004 — Start baseline ArduCopter SITL with built-in physics
 
 **Codex task**
 Add a `baseline` Compose profile that starts ArduCopter in normal quad SITL mode before introducing MuJoCo.
@@ -169,7 +169,7 @@ Done when the script prints a heartbeat with `sysid`, `compid`, vehicle type, an
 
 ---
 
-## DFD-005 — Add the ArduPilot JSON protocol stub
+## DCK-005 — Add the ArduPilot JSON protocol stub
 
 **Codex task**
 Create a `physics-stub` service that implements only the ArduPilot JSON external-physics protocol.
@@ -198,7 +198,7 @@ Done when `physics-stub` logs increasing `frame_count` values and SITL logs show
 
 ---
 
-## DFD-006 — Create a minimal MuJoCo quadrotor model
+## DCK-006 — Create a minimal MuJoCo quadrotor model
 
 **Codex task**
 Add `models/quad.xml` and a standalone MuJoCo self-test script.
@@ -233,7 +233,7 @@ hover-ish thrust: altitude remains bounded or increases slowly
 
 ---
 
-## DFD-007 — Connect MuJoCo to ArduPilot JSON SITL
+## DCK-007 — Connect MuJoCo to ArduPilot JSON SITL
 
 **Codex task**
 Replace `physics-stub` with the real `physics` service.
@@ -261,7 +261,7 @@ Done when the system runs for 60 seconds with increasing frame counts, no physic
 
 ---
 
-## DFD-008 — Add ROS 2 MAVLink bridge node
+## DCK-008 — Add ROS 2 MAVLink bridge node
 
 **Codex task**
 Create a ROS 2 Python package under `src/ros2/drone_bridge`.
@@ -296,7 +296,7 @@ Done when `/drone/heartbeat` publishes from SITL through the ROS 2 node.
 
 ---
 
-## DFD-009 — Command arm and takeoff from ROS 2
+## DCK-009 — Command arm and takeoff from ROS 2
 
 **Codex task**
 Add a simple ROS 2 command path and test script.
@@ -322,7 +322,7 @@ Done when odometry altitude begins increasing after the takeoff command.
 
 ---
 
-## DFD-010 — Publish simulation state for visualization
+## DCK-010 — Publish simulation state for visualization
 
 **Codex task**
 Make the `physics` service also act as a ROS 2 publisher.
@@ -354,7 +354,7 @@ Done when ROS 2 receives live ground-truth odometry, TF, and scenario markers.
 
 ---
 
-## DFD-011 — Add MuJoCo camera image publishing
+## DCK-011 — Add MuJoCo camera image publishing
 
 **Codex task**
 Add offscreen MuJoCo rendering inside the `physics` service and publish images.
@@ -386,7 +386,7 @@ Done when image frames publish at a stable rate and the physics process keeps ru
 
 ---
 
-## DFD-012 — Add local RViz2 + noVNC browser visualization service
+## DCK-012 — Add local RViz2 + noVNC browser visualization service
 
 **Codex task**
 Add a `viz` service that runs RViz2 inside Docker and exposes the desktop through noVNC.
@@ -447,7 +447,6 @@ Fixed Frame: world
 TF: /tf
 Odometry: /drone/odom
 Odometry: /sim/ground_truth/odom
-MarkerArray: /sim/drone_markers
 MarkerArray: /sim/scenario_markers
 Image: /sim/camera/front/image_raw
 ```
@@ -457,14 +456,14 @@ Image: /sim/camera/front/image_raw
 ```bash
 make up-viz
 docker compose logs viz | grep -Ei "rviz|vnc|websockify"
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic list | grep -E "/drone/odom|/sim/ground_truth/odom|/tf|/sim/drone_markers|/sim/scenario_markers"'
+docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic list | grep -E "/drone/odom|/sim/ground_truth/odom|/tf|/sim/scenario_markers"'
 ```
 
-Done when `http://localhost:6080/vnc.html?autoconnect=true&resize=scale` opens locally in the Mac browser, shows an RViz2 desktop, and RViz2 displays live drone pose/TF, a visible drone body marker, and scenario markers.
+Done when `http://localhost:6080/vnc.html?autoconnect=true&resize=scale` opens locally in the Mac browser, shows an RViz2 desktop, and RViz2 displays live drone pose/TF/scenario markers.
 
 ---
 
-## DFD-013 — Add scenario files and manual visual checks
+## DCK-013 — Add scenario files and manual visual checks
 
 **Codex task**
 Add scenario loading to the physics service.
@@ -495,7 +494,7 @@ Done when changing `SCENARIO` changes both the MuJoCo world and the markers visi
 
 ---
 
-## DFD-014 — Add end-to-end takeoff smoke test
+## DCK-014 — Add end-to-end takeoff smoke test
 
 **Codex task**
 Create `tests/e2e_takeoff.py` or `scripts/e2e_takeoff.py`.
@@ -530,7 +529,7 @@ E2E PASS: heartbeat, arm, takeoff, odom altitude threshold reached
 
 ---
 
-## DFD-015 — Add observability and artifacts
+## DCK-015 — Add observability and artifacts
 
 **Codex task**
 Add enough telemetry to debug without GUI tools.
@@ -555,7 +554,7 @@ Done when `/drone/odom`, `/sim/ground_truth/odom`, `/tf`, `/sim/scenario_markers
 
 ---
 
-## DFD-016 — Document the one-command workflow
+## DCK-016 — Document the one-command workflow
 
 **Codex task**
 Update `README.md` with the final happy path.
@@ -603,7 +602,7 @@ Done when the documented path completes without hidden manual steps and the brow
 
 ## Optional later ticket — Native ArduPilot DDS ROS 2 path
 
-**ID: DFD-017**
+**ID: DCK-017**
 
 Add ArduPilot's native AP_DDS / micro-ROS-Agent integration after the MAVLink bridge works.
 
@@ -629,3 +628,22 @@ Done when ArduPilot publishes native ROS 2 topics through DDS inside Docker.
 - RViz2 source/docs: https://github.com/ros2/rviz
 - noVNC source/docs: https://github.com/novnc/noVNC
 - MuJoCo Python/offscreen rendering docs: https://mujoco.readthedocs.io/en/stable/python.html
+
+---
+
+## Scenario extension: mountain terrain + two drones
+
+A standalone ticketed plan for the mountain terrain, two-drone target/chaser scenario, per-drone camera views, and RViz2 visualization is provided in:
+
+```text
+two_drone_mountain_scenario_plan.md
+```
+
+Recommended MVP design: keep one ArduPilot-controlled chaser drone and make the sky drone a scripted MuJoCo target. Upgrade to two ArduPilot SITL instances only after the MVP passes.
+
+Key commands expected by that extension:
+
+```bash
+ENABLE_CAMERAS=1 SCENARIO=mountain_two_drones make up-two-drone-viz
+SCENARIO=mountain_two_drones make test-e2e-two-drone
+```
