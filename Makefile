@@ -5,7 +5,7 @@ DURATION ?= 10
 LOG_FLAGS ?= -f
 TOPIC ?= /drone/odom
 
-.PHONY: help preflight build up up-baseline baseline-heartbeat up-mujoco probe-ros-visualization probe-camera-image topic-list topic-hz bag-record artifact-dirs test-json-stub test-mujoco-quad test-frame-conventions test-ros-frame-conventions up-viz down logs shell-ros2 shell-sitl shell-physics test test-e2e
+.PHONY: help preflight build up up-baseline baseline-heartbeat up-mujoco probe-ros-visualization probe-camera-image topic-list topic-hz bag-record artifact-dirs test-json-stub test-mujoco-quad test-frame-conventions test-ros-frame-conventions up-viz generate-map up-map-viz test-map down logs shell-ros2 shell-sitl shell-physics test test-e2e
 
 help:
 	@printf '%s\n' \
@@ -27,6 +27,9 @@ help:
 		'  test-frame-conventions  Run ENU/NED and altitude sign unit tests' \
 		'  test-ros-frame-conventions  Run ROS odometry frame-convention unit tests' \
 		'  up-viz         Start MuJoCo, ROS 2, and RViz2/noVNC on localhost:6080' \
+		'  generate-map   Placeholder until MAP-002 implements deterministic map generation' \
+		'  up-map-viz     Placeholder until MAP-005 implements mountain map visualization' \
+		'  test-map       Placeholder until MAP-006 implements the bounded map smoke test' \
 		'  down           Stop and remove Compose services' \
 		'  logs           Follow Compose service logs and tee output to artifacts/test-logs' \
 		'  shell-ros2     Open a shell in the ros2 service image' \
@@ -85,6 +88,18 @@ test-ros-frame-conventions:
 
 up-viz:
 	docker compose --profile mujoco --profile viz up -d sitl-json physics ros2 viz
+
+generate-map:
+	@printf '%s\n' 'ERROR: generate-map is a placeholder; implemented by MAP-002' >&2
+	@exit 1
+
+up-map-viz:
+	@printf '%s\n' 'ERROR: up-map-viz is a placeholder; implemented by MAP-005' >&2
+	@exit 1
+
+test-map:
+	@printf '%s\n' 'ERROR: test-map is a placeholder; implemented by MAP-006' >&2
+	@exit 1
 
 down:
 	docker compose --profile baseline --profile mujoco --profile viz down

@@ -103,6 +103,22 @@ artifacts/rosbags/
 artifacts/test-logs/
 ```
 
+## Mountain terrain map
+
+The mountain terrain work is specified in the
+[Mountain terrain map plan](mountain_terrain_map_plan.md). MAP-000 only adds
+the plan contract and Make placeholders; the map feature is not implemented
+yet.
+
+Until their owning tickets land, these commands intentionally exit nonzero and
+identify the ticket that will implement them:
+
+```bash
+make generate-map  # MAP-002
+make up-map-viz    # MAP-005
+make test-map      # MAP-006
+```
+
 ## Configuration
 
 Edit `.env` after copying `.env.example`.
