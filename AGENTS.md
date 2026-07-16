@@ -1,6 +1,6 @@
 Goal: run the full drone simulation stack with Docker Desktop for Mac only. No host installs are allowed except Docker Desktop, its Docker Engine, and the Docker Compose plugin. Keep the first version headless and browser-viewable.
 
-follow plan in ardupilot_mujoco_ros2_full_docker_plan.md.
+follow plan in mountain_terrain_map_plan.md.
 
 make sure each ticket has its own branch, when you start a make sure the previuos work is committed and start the new branch from the previous one.
 
