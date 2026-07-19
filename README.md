@@ -158,6 +158,13 @@ after every phase passes. All flight thresholds and timeouts are available via
 `python3 scripts/mountain_vertical_flight_probe.py --help` inside the `ros2`
 container.
 
+## Two-drone mountain scenario
+
+The planned target-and-chaser simulation is specified in the
+[Two-drone mountain scenario plan](plans/two_drone_mountain_scenario_plan.md).
+Its launch and end-to-end Make targets are safe placeholders until SCN-007 and
+SCN-009 implement them; the two-drone scenario is not runnable yet.
+
 ## Configuration
 
 Edit `.env` after copying `.env.example`.
