@@ -6,6 +6,7 @@ import argparse
 from dataclasses import dataclass
 import json
 import math
+import os
 from pathlib import Path
 import socket
 import sys
@@ -30,6 +31,7 @@ from src.physics.scenarios import (
     scenario_from_env,
     scenario_from_name,
 )
+from src.physics.terrain_map import SpawnPose, TerrainMap
 
 
 GRAVITY_MPS2 = 9.80665
@@ -38,6 +40,7 @@ DEFAULT_PWM_MIN = 1000
 DEFAULT_PWM_MAX = 2000
 DEFAULT_THRUST_TO_WEIGHT = 2.0
 DEFAULT_MAX_FRAME_DT = 0.05
+RESET_AFTER_FRAMES_ENV = "SIM_RESET_AFTER_FRAMES"
 
 
 @dataclass(frozen=True)
@@ -124,6 +127,24 @@ def should_log_frame(now: float, last_log_at: float | None) -> bool:
     return last_log_at is None or now - last_log_at >= LOG_INTERVAL_SECONDS
 
 
+def reset_after_frames_from_env(values: dict[str, str] | None = None) -> int:
+    raw = (os.environ if values is None else values).get(RESET_AFTER_FRAMES_ENV, "0")
+    try:
+        result = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{RESET_AFTER_FRAMES_ENV} must be a non-negative integer") from exc
+    if result < 0 or str(result) != raw.strip():
+        raise ValueError(f"{RESET_AFTER_FRAMES_ENV} must be a non-negative integer")
+    return result
+
+
+def scenario_spawn_pose(scenario: object) -> SpawnPose:
+    if scenario.config is None:
+        return SpawnPose((0.0, 0.0, 1.0), (1.0, 0.0, 0.0, 0.0), 0.0, 0.0)
+    terrain = TerrainMap.from_config(scenario.config, scenario.xml_path.parent / scenario.name)
+    return terrain.safe_spawn_pose(scenario.config)
+
+
 def log_frame(
     packet: PwmPacket,
     step: StepDecision,
@@ -174,6 +195,9 @@ def serve(
         model_source=f"{Path(model_path)} + {scenario.xml_path}",
         vfs_files=scenario.vfs_files,
     )
+    spawn_pose = scenario_spawn_pose(scenario)
+    quad.reset(spawn_pose.position_xyz, spawn_pose.quaternion_wxyz)
+    reset_after_frames = reset_after_frames_from_env()
     max_thrust_per_motor = quad.mass * GRAVITY_MPS2 * thrust_to_weight / 4.0
     thrust_mapper = PwmThrustMapper(
         pwm_min=pwm_min,
@@ -210,6 +234,8 @@ def serve(
                 flush=True,
             )
 
+            accepted_packets = 0
+
             while True:
                 payload, sender = udp.recvfrom(4096)
                 try:
@@ -224,10 +250,20 @@ def serve(
                     continue
 
                 step = clock.consume(packet)
-                if step.reset:
-                    quad.reset()
+                accepted_packets += 1
+                deterministic_reset = (
+                    reset_after_frames > 0
+                    and accepted_packets % reset_after_frames == 0
+                )
+                if step.reset or deterministic_reset:
+                    quad.reset(spawn_pose.position_xyz, spawn_pose.quaternion_wxyz)
+                    # Bypass rate limiting: this is the required pre-step reset sample.
+                    ros_visualization.publish(quad.state())
                     print(
-                        f"mujoco_json reset frame_count={packet.frame_count}",
+                        "mujoco_json reset "
+                        f"frame_count={packet.frame_count} "
+                        f"accepted_packets={accepted_packets} "
+                        f"reason={'frame_count' if step.reset else 'test_interval'}",
                         file=stdout,
                         flush=True,
                     )

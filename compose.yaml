@@ -20,6 +20,7 @@ x-sim-common: &sim-common
     ARDUPILOT_REF: ${ARDUPILOT_REF:-92b0cd788ec29406f26c6f9c31d5ceedbd1cc538}
     ARTIFACTS_DIR: /workspace/artifacts
     SCENARIO: ${SCENARIO:-landing_pad}
+    SIM_RESET_AFTER_FRAMES: ${SIM_RESET_AFTER_FRAMES:-0}
     CAMERA_ENABLED: ${CAMERA_ENABLED:-true}
     CAMERA_NAME: ${CAMERA_NAME:-front_cam}
     CAMERA_FRAME: ${CAMERA_FRAME:-front_cam}
