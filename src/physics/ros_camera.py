@@ -70,6 +70,18 @@ class CameraIntrinsics:
     cy: float
 
 
+def ros_image_pixels(pixels: Any) -> Any:
+    """Convert the active MuJoCo GL buffer to ROS top-left image row order."""
+    import numpy as np
+
+    rgb = np.asarray(pixels, dtype=np.uint8)
+    if rgb.ndim != 3 or rgb.shape[2] != 3:
+        raise ValueError(f"camera pixels must have HxWx3 shape, got {rgb.shape}")
+    # mujoco.Renderer already normalizes EGL/OSMesa buffers to top-left row
+    # order. ROS only needs a contiguous RGB buffer.
+    return np.ascontiguousarray(rgb)
+
+
 def parse_bool(value: str) -> bool:
     normalized = value.strip().lower()
     if normalized in {"1", "true", "yes", "on"}:
@@ -218,9 +230,7 @@ class SimCameraPublisher:
         self._rclpy.spin_once(self._node, timeout_sec=0.0)
 
     def _build_image(self, stamp: Any, pixels: Any) -> Any:
-        import numpy as np
-
-        rgb = np.ascontiguousarray(pixels, dtype=np.uint8)
+        rgb = ros_image_pixels(pixels)
         expected_shape = (self._config.height, self._config.width, 3)
         if rgb.shape != expected_shape:
             raise RuntimeError(

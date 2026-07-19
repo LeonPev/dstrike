@@ -29,6 +29,7 @@ x-sim-common: &sim-common
     CAMERA_FPS: ${CAMERA_FPS:-10}
     CAMERA_TOPIC: ${CAMERA_TOPIC:-/sim/camera/front/image_raw}
     CAMERA_INFO_TOPIC: ${CAMERA_INFO_TOPIC:-/sim/camera/front/camera_info}
+    RVIZ_CONFIG: ${RVIZ_CONFIG:-/workspace/config/drone.rviz}
     LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-1}
   tty: true
   stdin_open: true
@@ -134,6 +135,9 @@ services:
       - "127.0.0.1:${NOVNC_PORT:-6080}:6080"
     environment:
       ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      SCENARIO: ${SCENARIO:-landing_pad}
+      RVIZ_CONFIG: ${RVIZ_CONFIG:-/workspace/config/drone.rviz}
+      VNC_GEOMETRY: ${VNC_GEOMETRY:-1440x900x24}
       DISPLAY: ":1"
       LIBGL_ALWAYS_SOFTWARE: "1"
     command: ["bash", "-lc", "scripts/start_rviz_novnc.sh"]

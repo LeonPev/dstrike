@@ -1,9 +1,24 @@
 <mujoco model="mountain_map">
+  <visual>
+    <!-- MuJoCo scales znear by model extent. The default becomes about 3 m
+         on this 300 m map and clips away the ground beneath the drone camera. -->
+    <map znear="0.0001"/>
+  </visual>
   <asset>
     <!-- size is patched from scenario.yaml by the canonical scenario loader. -->
     <hfield name="mountain_hfield" file="mountain_map/heightfield.bin" size="1 1 1 1"/>
+    <texture name="mountain_sky" type="skybox" builtin="gradient"
+             rgb1="0.32 0.55 0.82" rgb2="0.04 0.10 0.20"
+             width="512" height="3072"/>
   </asset>
   <worldbody>
+    <!-- A directional light reaches the whole 300 m map. The base model's
+         point light is intentionally local and leaves the remote spawn/camera
+         almost completely black. -->
+    <light name="mountain_sun" directional="true" pos="0 0 200"
+           dir="-0.3 -0.2 -1" ambient="0.45 0.45 0.45"
+           diffuse="0.8 0.8 0.75" specular="0.1 0.1 0.1"
+           castshadow="false"/>
     <geom name="mountain_terrain" type="hfield" hfield="mountain_hfield"
           pos="0 0 0" contype="1" conaffinity="1"
           friction="1.0 0.005 0.0001" rgba="0.22 0.38 0.16 1"/>

@@ -22,8 +22,10 @@ class TerrainAssets:
 def generate_terrain(config: MountainMapConfig) -> TerrainAssets:
     terrain = config.terrain
     rng = np.random.Generator(np.random.PCG64(terrain.seed))
-    axis = np.linspace(-terrain.size_m / 2.0, terrain.size_m / 2.0, terrain.resolution)
-    x_grid, y_grid = np.meshgrid(axis, axis)
+    x_axis = np.linspace(-terrain.size_m / 2.0, terrain.size_m / 2.0, terrain.resolution)
+    # Canonical image row order is north-to-south: row 0 is +Y.
+    y_axis = np.linspace(terrain.size_m / 2.0, -terrain.size_m / 2.0, terrain.resolution)
+    x_grid, y_grid = np.meshgrid(x_axis, y_axis)
 
     raw = np.zeros_like(x_grid)
     peaks = (
@@ -76,7 +78,7 @@ def bilinear_sample(values: np.ndarray, x_m: float, y_m: float, size_m: float) -
     """Sample an image-row-order terrain array at world x/y coordinates."""
     resolution = values.shape[0]
     col = (x_m + size_m / 2.0) * (resolution - 1) / size_m
-    row = (y_m + size_m / 2.0) * (resolution - 1) / size_m
+    row = (size_m / 2.0 - y_m) * (resolution - 1) / size_m
     c0, r0 = int(math.floor(col)), int(math.floor(row))
     c1, r1 = min(c0 + 1, resolution - 1), min(r0 + 1, resolution - 1)
     tx, ty = col - c0, row - r0

@@ -44,8 +44,10 @@
       <site name="rotor_rear_right" pos="-0.18 -0.18 0.02"
             type="sphere" size="0.025" material="rotor_blue"/>
 
-      <camera name="front_cam" mode="fixed" pos="0.14 0 0.04"
-              xyaxes="0 -1 0 0 0 1" fovy="80"/>
+      <!-- Forward camera: +X heading, raised above the body and pitched 12
+           degrees down so both terrain and horizon remain useful in flight. -->
+      <camera name="front_cam" mode="fixed" pos="0.24 0 0.10"
+              xyaxes="0 -1 0 0.207912 0 0.978148" fovy="80"/>
     </body>
   </worldbody>
 </mujoco>

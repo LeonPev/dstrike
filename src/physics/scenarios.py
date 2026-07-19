@@ -116,6 +116,7 @@ def build_scenario_model_xml(
         _prepare_mountain_map_xml(base_root, scenario_root, scenario.config)
 
     _merge_section_children(base_root, scenario_root, "asset")
+    _merge_section_children(base_root, scenario_root, "visual")
     _merge_section_children(base_root, scenario_root, "worldbody")
     return ET.tostring(base_root, encoding="unicode")
 

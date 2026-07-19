@@ -108,6 +108,8 @@ def main() -> int:
         )
         pixel_min = min(pixel_bytes)
         pixel_max = max(pixel_bytes)
+        pixel_mean = sum(pixel_bytes) / len(pixel_bytes)
+        dark_fraction = sum(value <= 10 for value in pixel_bytes) / len(pixel_bytes)
         print(
             f"topic={args.topic} "
             f"samples={len(node.messages)} "
@@ -117,7 +119,9 @@ def main() -> int:
             f"step={latest.step} "
             f"fps_estimate={fps_estimate:.2f} "
             f"pixel_min={pixel_min} "
-            f"pixel_max={pixel_max}"
+            f"pixel_max={pixel_max} "
+            f"pixel_mean={pixel_mean:.2f} "
+            f"dark_fraction={dark_fraction:.3f}"
         )
         print(PASS_LINE)
         return 0

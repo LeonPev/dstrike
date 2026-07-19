@@ -28,7 +28,7 @@ help:
 		'  test-ros-frame-conventions  Run ROS odometry frame-convention unit tests' \
 		'  up-viz         Start MuJoCo, ROS 2, and RViz2/noVNC on localhost:6080' \
 		'  generate-map   Generate and verify deterministic mountain map assets in Docker' \
-		'  up-map-viz     Placeholder until MAP-005 implements mountain map visualization' \
+		'  up-map-viz     Generate the mountain map and start RViz2/noVNC on localhost:6080' \
 		'  test-map       Placeholder until MAP-006 implements the bounded map smoke test' \
 		'  down           Stop and remove Compose services' \
 		'  logs           Follow Compose service logs and tee output to artifacts/test-logs' \
@@ -93,8 +93,8 @@ generate-map:
 	docker compose run --rm physics bash -lc "cd /workspace && python3 scripts/generate_terrain_map.py --scenario mountain_map && python3 scripts/verify_map002_generation.py --scenario mountain_map"
 
 up-map-viz:
-	@printf '%s\n' 'ERROR: up-map-viz is a placeholder; implemented by MAP-005' >&2
-	@exit 1
+	@$(MAKE) generate-map
+	SCENARIO=mountain_map RVIZ_CONFIG=/workspace/config/mountain_map.rviz docker compose --profile mujoco --profile viz up -d sitl-json physics ros2 viz
 
 test-map:
 	@printf '%s\n' 'ERROR: test-map is a placeholder; implemented by MAP-006' >&2

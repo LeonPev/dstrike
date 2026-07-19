@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import math
+import os
+from pathlib import Path
 import time
 from typing import Any, Iterable
+
+import numpy as np
+
+from src.physics.scenario_config import load_mountain_map_config
 
 from src.physics.scenarios import (
     ScenarioMarkerSpec,
@@ -20,6 +27,8 @@ GROUND_TRUTH_ODOM_TOPIC = "/sim/ground_truth/odom"
 TF_TOPIC = "/tf"
 SCENARIO_MARKERS_TOPIC = "/sim/scenario_markers"
 DRONE_MARKERS_TOPIC = "/sim/drone_markers"
+TERRAIN_MARKERS_TOPIC = "/sim/terrain_markers"
+NATURE_MARKERS_TOPIC = "/sim/nature_markers"
 DEFAULT_PUBLISH_RATE_HZ = 10.0
 ROTOR_SITE_NAMES = (
     "rotor_front_left",
@@ -52,6 +61,61 @@ class DroneMarkerSpec:
     position_xyz: tuple[float, float, float]
     scale_xyz: tuple[float, float, float]
     color_rgba: tuple[float, float, float, float]
+
+
+@dataclass(frozen=True)
+class TerrainMesh:
+    points_xyz: tuple[tuple[float, float, float], ...]
+    triangle_count: int
+    heights_m: np.ndarray
+    size_m: float
+    decimation: int
+
+
+def terrain_mesh(heights_m: np.ndarray, size_m: float, decimation: int) -> TerrainMesh:
+    """Build the canonical row-major terrain mesh used by RViz and its probe."""
+    heights = np.asarray(heights_m, dtype=np.float64)
+    if heights.ndim != 2 or heights.shape[0] != heights.shape[1]:
+        raise ValueError("terrain height array must be square")
+    if decimation <= 0 or (heights.shape[0] - 1) % decimation:
+        raise ValueError("decimation must divide terrain resolution - 1")
+    radius = float(size_m) / 2.0
+    coordinates = np.linspace(-radius, radius, heights.shape[0])
+    points: list[tuple[float, float, float]] = []
+    for row in range(0, heights.shape[0] - 1, decimation):
+        for col in range(0, heights.shape[1] - 1, decimation):
+            r1, c1 = row + decimation, col + decimation
+            p00 = (coordinates[col], coordinates[-1 - row], float(heights[row, col]))
+            p10 = (coordinates[c1], coordinates[-1 - row], float(heights[row, c1]))
+            p01 = (coordinates[col], coordinates[-1 - r1], float(heights[r1, col]))
+            p11 = (coordinates[c1], coordinates[-1 - r1], float(heights[r1, c1]))
+            # Counter-clockwise from above so Ogre/RViz lights the visible face.
+            points.extend((p00, p01, p10, p11, p10, p01))
+    return TerrainMesh(
+        tuple(points), len(points) // 3, heights, float(size_m), decimation
+    )
+
+
+def terrain_mesh_height_at(mesh: TerrainMesh, x_m: float, y_m: float) -> float:
+    """Return the height of the displayed decimated triangle surface."""
+    radius = mesh.size_m / 2.0
+    if not (-radius <= x_m <= radius and -radius <= y_m <= radius):
+        raise ValueError("terrain mesh query is outside map bounds")
+    resolution = mesh.heights_m.shape[0]
+    col = (x_m + radius) * (resolution - 1) / mesh.size_m
+    row = (radius - y_m) * (resolution - 1) / mesh.size_m
+    c0 = min(int(math.floor(col / mesh.decimation)) * mesh.decimation, resolution - 1 - mesh.decimation)
+    r0 = min(int(math.floor(row / mesh.decimation)) * mesh.decimation, resolution - 1 - mesh.decimation)
+    tx = (col - c0) / mesh.decimation
+    ty = (row - r0) / mesh.decimation
+    c1, r1 = c0 + mesh.decimation, r0 + mesh.decimation
+    h00 = float(mesh.heights_m[r0, c0])
+    h10 = float(mesh.heights_m[r0, c1])
+    h01 = float(mesh.heights_m[r1, c0])
+    h11 = float(mesh.heights_m[r1, c1])
+    if tx + ty <= 1.0:
+        return h00 + tx * (h10 - h00) + ty * (h01 - h00)
+    return h11 + (1.0 - tx) * (h01 - h11) + (1.0 - ty) * (h10 - h11)
 
 
 def ground_truth_odom_fields(state: Any) -> GroundTruthOdomFields:
@@ -202,10 +266,28 @@ class SimVisualizationPublisher:
             DRONE_MARKERS_TOPIC,
             marker_qos,
         )
-        self._site_transforms = rotor_site_transforms_from_quad(quad)
-        self._drone_marker_specs = drone_marker_specs(
-            site_transform.translation_xyz for site_transform in self._site_transforms
+        self._terrain_marker_pub = self._node.create_publisher(
+            MarkerArray, TERRAIN_MARKERS_TOPIC, marker_qos
         )
+        self._nature_marker_pub = self._node.create_publisher(
+            MarkerArray, NATURE_MARKERS_TOPIC, marker_qos
+        )
+        self._site_transforms = rotor_site_transforms_from_quad(quad)
+        drone_specs = list(drone_marker_specs(
+            site_transform.translation_xyz for site_transform in self._site_transforms
+        ))
+        if os.environ.get("SCENARIO", "landing_pad") == "mountain_map":
+            drone_specs.append(
+                DroneMarkerSpec(
+                    namespace="drone_locator",
+                    marker_id=0,
+                    shape="cylinder",
+                    position_xyz=(0.0, 0.0, -0.15),
+                    scale_xyz=(5.0, 5.0, 0.15),
+                    color_rgba=(1.0, 0.78, 0.0, 0.85),
+                )
+            )
+        self._drone_marker_specs = tuple(drone_specs)
         self._scenario_marker_specs = tuple(
             scenario_from_name(None).marker_specs
             if scenario_markers is None
@@ -213,10 +295,12 @@ class SimVisualizationPublisher:
         )
         self._publish_period_s = 1.0 / publish_rate_hz
         self._last_publish_monotonic_s: float | None = None
+        self._static_markers_published = False
+        self._map_assets = self._load_map_assets()
         self._node.get_logger().info(
             "publishing simulation visualization topics "
             f"{GROUND_TRUTH_ODOM_TOPIC}, {TF_TOPIC}, {SCENARIO_MARKERS_TOPIC}, "
-            f"{DRONE_MARKERS_TOPIC}"
+            f"{DRONE_MARKERS_TOPIC}, {TERRAIN_MARKERS_TOPIC}, {NATURE_MARKERS_TOPIC}"
         )
 
     def close(self) -> None:
@@ -247,7 +331,79 @@ class SimVisualizationPublisher:
         self._tf_pub.publish(self._build_tf_message(stamp, fields))
         self._marker_pub.publish(self._build_scenario_markers(stamp))
         self._drone_marker_pub.publish(self._build_drone_markers(stamp))
+        if not self._static_markers_published and self._map_assets is not None:
+            mesh, nature = self._map_assets
+            self._terrain_marker_pub.publish(self._build_terrain_markers(stamp, mesh))
+            self._nature_marker_pub.publish(
+                self._build_nature_markers(stamp, nature, mesh)
+            )
+            self._static_markers_published = True
         self._rclpy.spin_once(self._node, timeout_sec=0.0)
+
+    def _load_map_assets(self) -> tuple[TerrainMesh, dict[str, list[dict[str, Any]]]] | None:
+        if os.environ.get("SCENARIO", "landing_pad") != "mountain_map":
+            return None
+        asset_dir = Path("/workspace/models/scenarios/mountain_map")
+        if not asset_dir.exists():
+            asset_dir = Path("models/scenarios/mountain_map")
+        config = load_mountain_map_config(asset_dir / "scenario.yaml")
+        mesh = terrain_mesh(
+            np.load(asset_dir / "heightfield_m.npy"),
+            config.terrain.size_m,
+            config.terrain.rviz_decimation,
+        )
+        with (asset_dir / "nature.json").open(encoding="utf-8") as nature_file:
+            nature = json.load(nature_file)
+        return mesh, nature
+
+    def _build_terrain_markers(self, stamp: Any, mesh: TerrainMesh) -> Any:
+        from geometry_msgs.msg import Point
+        from visualization_msgs.msg import Marker
+
+        marker = self._marker_base(stamp, "terrain", 0)
+        marker.type = Marker.TRIANGLE_LIST
+        marker.scale.x = marker.scale.y = marker.scale.z = 1.0
+        marker.color.r, marker.color.g, marker.color.b, marker.color.a = (0.30, 0.55, 0.22, 1.0)
+        marker.points = [Point(x=x, y=y, z=z) for x, y, z in mesh.points_xyz]
+        result = self._marker_array_type()
+        result.markers = [marker]
+        return result
+
+    def _build_nature_markers(
+        self,
+        stamp: Any,
+        nature: dict[str, list[dict[str, Any]]],
+        mesh: TerrainMesh,
+    ) -> Any:
+        from visualization_msgs.msg import Marker
+
+        markers = []
+        for namespace, marker_type, color in (
+            ("trees", Marker.CYLINDER, (0.12, 0.42, 0.10, 1.0)),
+            ("rocks", Marker.SPHERE, (0.38, 0.35, 0.32, 1.0)),
+        ):
+            for marker_id, item in enumerate(nature[namespace]):
+                marker = self._marker_base(stamp, namespace, marker_id)
+                marker.type = marker_type
+                scale = float(item["scale"])
+                height = (5.0 if namespace == "trees" else 1.5) * scale
+                width = (1.2 if namespace == "trees" else 2.0) * scale
+                marker.pose.position.x = float(item["x_m"])
+                marker.pose.position.y = float(item["y_m"])
+                # nature.json remains aligned to the full physics heightfield.
+                # Anchor the visual marker to the decimated mesh shown by RViz,
+                # otherwise the simplification can leave a visible air gap.
+                visual_ground_z = terrain_mesh_height_at(
+                    mesh, marker.pose.position.x, marker.pose.position.y
+                )
+                marker.pose.position.z = visual_ground_z + height / 2.0
+                marker.scale.x = marker.scale.y = width
+                marker.scale.z = height
+                marker.color.r, marker.color.g, marker.color.b, marker.color.a = color
+                markers.append(marker)
+        result = self._marker_array_type()
+        result.markers = markers
+        return result
 
     def _build_odometry(self, stamp: Any, fields: GroundTruthOdomFields) -> Any:
         odom = self._odometry_type()

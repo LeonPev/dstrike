@@ -183,6 +183,22 @@ def test_mountain_map_patches_hfield_and_removes_flat_ground() -> None:
     assert "mountain_terrain" in geom_names
     assert "visual_ground" not in geom_names
 
+    sun = root.find("./worldbody/light[@name='mountain_sun']")
+    assert sun is not None
+    assert sun.attrib["directional"] == "true"
+    assert tuple(float(value) for value in sun.attrib["ambient"].split()) == (
+        0.45,
+        0.45,
+        0.45,
+    )
+    sky = root.find("./asset/texture[@name='mountain_sky']")
+    assert sky is not None
+    assert sky.attrib["type"] == "skybox"
+
+    visual_map = root.find("./visual/map")
+    assert visual_map is not None
+    assert float(visual_map.attrib["znear"]) == 0.0001
+
 
 def test_heading_quaternion_contract() -> None:
     assert heading_quaternion_wxyz(0) == (1.0, 0.0, 0.0, 0.0)

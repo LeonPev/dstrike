@@ -72,8 +72,9 @@ def main() -> None:
     assert not np.array_equal(payload, norm)
 
     spacing = config.terrain.size_m / (config.terrain.resolution - 1)
-    axis = np.linspace(-config.terrain.size_m / 2.0, config.terrain.size_m / 2.0, config.terrain.resolution)
-    x_grid, y_grid = np.meshgrid(axis, axis)
+    x_axis = np.linspace(-config.terrain.size_m / 2.0, config.terrain.size_m / 2.0, config.terrain.resolution)
+    y_axis = np.linspace(config.terrain.size_m / 2.0, -config.terrain.size_m / 2.0, config.terrain.resolution)
+    x_grid, y_grid = np.meshgrid(x_axis, y_axis)
     basin = np.hypot(x_grid - config.spawn.x_m, y_grid - config.spawn.y_m) <= config.terrain.spawn_basin_radius_m
     assert basin.any()
     basin_values = height_m[basin].astype(np.float64)

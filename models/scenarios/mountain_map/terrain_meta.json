@@ -1,10 +1,10 @@
 {
   "checksums_sha256": {
-    "heightfield.bin": "5e8dd9b637b630ac16e5824e58342be06b917c7cc19bc9999cd0d0812fa40b48",
-    "heightfield_m.npy": "95da4646f02c17b22ac120455c1ccadff476918af44946075ed131ed378173fd",
-    "heightfield_norm.npy": "2180c3e8734ad2d4f4d60d6c10b5f762513cb6dc0e3b61e5564bdb0ab1a9d3f9",
+    "heightfield.bin": "e982870a6b490759a89422c6e7433fa25ec10581e3eceedc04f3c8c7ca3d3c28",
+    "heightfield_m.npy": "ac282bbee67431bebcfcbd5c2451fe74794b06a5203cd9f3c9d8e0075ab733f5",
+    "heightfield_norm.npy": "a77bf282991a1df6a7b8a6d68a5a88ce3ca80d7e5ef258007ba997865b863916",
     "nature.json": "4fcec19c4ff267be9286d81627297d42dfedf9374635bff48a2f9549c5f609a3",
-    "terrain_preview.png": "757a6375f6303fd1cbc4b6b582d41c1422dd52a5dd85661db329bfc02331e812"
+    "terrain_preview.png": "8f45bd57d0da55c5677a8ce4e0be3637b7bfb58df86789f13342c501f164cff2"
   },
   "generator": "numpy.random.PCG64",
   "max_height_m": 45.0,

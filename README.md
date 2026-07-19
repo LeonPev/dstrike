@@ -70,6 +70,8 @@ Only noVNC is published to the Mac host by default.
 /tf
 /sim/scenario_markers
 /sim/drone_markers
+/sim/terrain_markers
+/sim/nature_markers
 /sim/camera/front/image_raw
 /sim/camera/front/camera_info
 ```
@@ -106,19 +108,26 @@ artifacts/test-logs/
 ## Mountain terrain map
 
 The mountain terrain work is specified in the
-[Mountain terrain map plan](mountain_terrain_map_plan.md). MAP-003 loads the
-committed deterministic heightfield through MuJoCo `MjVfs`, removes the flat
-ground for `mountain_map`, and verifies terrain rays and real collision contact.
+[Mountain terrain map plan](mountain_terrain_map_plan.md). The map viewer uses
+the committed deterministic heightfield, publishes the decimated surface plus
+all generated trees and rocks with transient-local ROS 2 durability, and opens
+an RViz view scaled for the 300 m map.
 
-Use the implemented generation and collision checks below. The visualization
-and aggregate smoke targets remain placeholders that identify their owner:
+Generate the assets, run the automated marker check, or open the browser view:
 
 ```bash
 make generate-map  # MAP-002
 docker compose run --rm physics bash -lc "cd /workspace && SCENARIO=mountain_map python3 scripts/mujoco_terrain_collision_probe.py"  # MAP-003
-make up-map-viz    # MAP-005
+SCENARIO=mountain_map bash scripts/run_map005_marker_check.sh
+make up-map-viz
 make test-map      # MAP-006
 ```
+
+For manual MAP-005 signoff, open
+`http://localhost:6080/vnc.html?autoconnect=true&resize=scale`, then confirm
+RViz shows the green terrain surface, tree and rock markers, scenario markers,
+the drone inside its yellow map-scale locator ring, and the live `Front Camera`
+panel. Finish with `make down`.
 
 ## Configuration
 
@@ -127,6 +136,7 @@ Edit `.env` after copying `.env.example`.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `NOVNC_PORT` | `6080` | Browser viewer port on `127.0.0.1` |
+| `VNC_GEOMETRY` | `1440x900x24` | Virtual desktop size matched to the saved RViz layout |
 | `SCENARIO` | `landing_pad` | Scenario: `empty_world`, `landing_pad`, `obstacle_course`, or `mountain_map` |
 | `CAMERA_ENABLED` | `true` | Publish the MuJoCo front camera topics |
 | `CAMERA_WIDTH` / `CAMERA_HEIGHT` | `640` / `480` | Camera image size |

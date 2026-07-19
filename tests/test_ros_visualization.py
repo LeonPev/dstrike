@@ -11,6 +11,8 @@ from src.physics.ros_visualization import (
     drone_marker_specs,
     ground_truth_odom_fields,
     quaternion_wxyz_to_xyzw,
+    terrain_mesh,
+    terrain_mesh_height_at,
     vector3_tuple,
 )
 
@@ -88,3 +90,35 @@ def test_drone_marker_specs_include_body_arms_and_rotors() -> None:
     assert specs[3].namespace == "drone_rotors"
     assert specs[3].shape == "cylinder"
     assert specs[3].position_xyz == (0.18, 0.18, 0.02)
+
+
+def test_terrain_mesh_uses_exact_decimated_cell_triangles_and_bounds() -> None:
+    heights = np.arange(25, dtype=np.float32).reshape(5, 5)
+    mesh = terrain_mesh(heights, size_m=40.0, decimation=2)
+
+    assert mesh.triangle_count == 8
+    assert len(mesh.points_xyz) == 24
+    assert {point[0] for point in mesh.points_xyz} == {-20.0, 0.0, 20.0}
+    assert {point[1] for point in mesh.points_xyz} == {-20.0, 0.0, 20.0}
+
+    for index in range(0, len(mesh.points_xyz), 3):
+        a, b, c = (np.asarray(point) for point in mesh.points_xyz[index:index + 3])
+        assert np.cross(b - a, c - a)[2] > 0.0
+
+
+def test_terrain_mesh_height_matches_the_displayed_coarse_triangles() -> None:
+    heights = np.array(
+        [
+            [0.0, 100.0, 10.0, 100.0, 20.0],
+            [100.0, 100.0, 100.0, 100.0, 100.0],
+            [30.0, 100.0, 40.0, 100.0, 50.0],
+            [100.0, 100.0, 100.0, 100.0, 100.0],
+            [60.0, 100.0, 70.0, 100.0, 80.0],
+        ],
+        dtype=np.float32,
+    )
+    mesh = terrain_mesh(heights, size_m=40.0, decimation=2)
+
+    assert terrain_mesh_height_at(mesh, -20.0, 20.0) == 0.0
+    assert terrain_mesh_height_at(mesh, 20.0, -20.0) == 80.0
+    assert terrain_mesh_height_at(mesh, -10.0, 10.0) == 20.0

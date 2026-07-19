@@ -8,9 +8,14 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-root}"
 
 VNC_PORT="${VNC_PORT:-5900}"
 NOVNC_PORT="${NOVNC_PORT:-6080}"
-VNC_GEOMETRY="${VNC_GEOMETRY:-1280x800x24}"
+VNC_GEOMETRY="${VNC_GEOMETRY:-1440x900x24}"
 NOVNC_WEB_DIR="${NOVNC_WEB_DIR:-/usr/share/novnc}"
 RVIZ_CONFIG="${RVIZ_CONFIG:-/workspace/config/drone.rviz}"
+
+if [ ! -f "${RVIZ_CONFIG}" ]; then
+  printf '[rviz-novnc] ERROR: RViz config not found: %s\n' "${RVIZ_CONFIG}" >&2
+  exit 1
+fi
 
 mkdir -p "${XDG_RUNTIME_DIR}"
 chmod 700 "${XDG_RUNTIME_DIR}"
