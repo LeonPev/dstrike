@@ -1,6 +1,6 @@
 ---
 name: diagnose-ardupilot-flight-logs
-description: Diagnose ArduPilot SITL takeoff, hover, motion, landing, disarm, and mode-transition failures in dsriker. Use when a live flight or bounded probe fails, flaps between modes, stays armed, or behaves in a way ROS output alone cannot explain. Decode DataFlash .BIN logs inside Docker and correlate them with MAVLink acknowledgements plus ROS and MuJoCo telemetry. Do not use for basic ROS topic checks or non-ArduPilot logs.
+description: Diagnose dsriker ArduPilot SITL flight failures from DataFlash .BIN logs. Use when takeoff, hover, landing, disarm, or mode transitions fail and ROS output does not reveal the cause; skip basic ROS topic checks.
 ---
 
 # Diagnose ArduPilot Flight Logs

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Diagnose ArduPilot Flight Logs"
-  short_description: "Decode SITL logs and trace flight failures"
-  default_prompt: "Use $diagnose-ardupilot-flight-logs to diagnose the latest ArduPilot SITL flight failure from its DataFlash log."
