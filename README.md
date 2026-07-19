@@ -120,8 +120,17 @@ make generate-map  # MAP-002
 docker compose run --rm physics bash -lc "cd /workspace && SCENARIO=mountain_map python3 scripts/mujoco_terrain_collision_probe.py"  # MAP-003
 SCENARIO=mountain_map bash scripts/run_map005_marker_check.sh
 make up-map-viz
-make test-map      # MAP-006
+make test-map      # MAP-006 bounded full workflow
 ```
+
+`make test-map` validates Compose, deterministic generation, both scenario
+loads, MuJoCo terrain collision, safe startup/reset pose, marker content, the
+landing-pad E2E flight, and the required regression suites. It tears down the
+Compose stack before starting and on success, failure, or interruption. After a
+failure, inspect the command output (and `docker compose logs` when a live check
+failed), fix the cause, and rerun `make test-map`; no manual cleanup is required.
+The landing-pad E2E check tears down visualization, so start `make up-map-viz`
+again for the manual RViz signoff.
 
 For manual MAP-005 signoff, open
 `http://localhost:6080/vnc.html?autoconnect=true&resize=scale`, then confirm

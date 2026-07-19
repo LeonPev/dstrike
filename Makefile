@@ -29,7 +29,7 @@ help:
 		'  up-viz         Start MuJoCo, ROS 2, and RViz2/noVNC on localhost:6080' \
 		'  generate-map   Generate and verify deterministic mountain map assets in Docker' \
 		'  up-map-viz     Generate the mountain map and start RViz2/noVNC on localhost:6080' \
-		'  test-map       Placeholder until MAP-006 implements the bounded map smoke test' \
+		'  test-map       Run bounded mountain map checks and landing-pad regressions' \
 		'  down           Stop and remove Compose services' \
 		'  logs           Follow Compose service logs and tee output to artifacts/test-logs' \
 		'  shell-ros2     Open a shell in the ros2 service image' \
@@ -97,8 +97,7 @@ up-map-viz:
 	SCENARIO=mountain_map RVIZ_CONFIG=/workspace/config/mountain_map.rviz docker compose --profile mujoco --profile viz up -d sitl-json physics ros2 viz
 
 test-map:
-	@printf '%s\n' 'ERROR: test-map is a placeholder; implemented by MAP-006' >&2
-	@exit 1
+	@bash scripts/run_map_smoke.sh
 
 down:
 	docker compose --profile baseline --profile mujoco --profile viz down
