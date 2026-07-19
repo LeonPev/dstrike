@@ -38,14 +38,14 @@ Required gate:
 ```bash
 git status --short
 # expected: no unrelated modified/deleted files
-# allowed before MAP-000: the canonical untracked mountain_terrain_map_plan.md draft itself
+# allowed before MAP-000: the canonical untracked plans/mountain_terrain_map_plan.md draft itself
 # allowed in MAP-000 only: AGENTS.md reroute to this plan, README link, Makefile placeholders, verifier script
 ```
 
 Before saving, reconcile any editor buffer with the canonical repository file:
 
 ```text
-mountain_terrain_map_plan.md
+plans/mountain_terrain_map_plan.md
 ```
 
 Do not implement from a duplicate unsaved buffer such as `mountain_terrain_map_plan(1).md` or `mountain_terrain_map_plan(2).md`.
@@ -53,7 +53,7 @@ Do not implement from a duplicate unsaved buffer such as `mountain_terrain_map_p
 The active base Docker/RViz plan must remain in the repository. Do not delete:
 
 ```text
-ardupilot_mujoco_ros2_full_docker_plan.md
+plans/ardupilot_mujoco_ros2_full_docker_plan.md
 ```
 
 Branching rule:
@@ -324,7 +324,7 @@ Files:
 
 ```text
 AGENTS.md                     # only if the local workflow intentionally points Codex to this plan
-mountain_terrain_map_plan.md
+plans/mountain_terrain_map_plan.md
 README.md
 Makefile
 scripts/verify_map000_contract.py

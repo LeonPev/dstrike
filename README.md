@@ -108,7 +108,7 @@ artifacts/test-logs/
 ## Mountain terrain map
 
 The mountain terrain work is specified in the
-[Mountain terrain map plan](mountain_terrain_map_plan.md). The map viewer uses
+[Mountain terrain map plan](plans/mountain_terrain_map_plan.md). The map viewer uses
 the committed deterministic heightfield, publishes the decimated surface plus
 all generated trees and rocks with transient-local ROS 2 durability, and opens
 an RViz view scaled for the 300 m map.

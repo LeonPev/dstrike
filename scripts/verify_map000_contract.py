@@ -11,8 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MAKEFILE = ROOT / "Makefile"
 README = ROOT / "README.md"
-MAP_PLAN = ROOT / "mountain_terrain_map_plan.md"
-BASE_PLAN = ROOT / "ardupilot_mujoco_ros2_full_docker_plan.md"
+MAP_PLAN = ROOT / "plans" / "mountain_terrain_map_plan.md"
+BASE_PLAN = ROOT / "plans" / "ardupilot_mujoco_ros2_full_docker_plan.md"
 
 PLACEHOLDERS = {
     "generate-map": "ERROR: generate-map is a placeholder; implemented by MAP-002",
@@ -77,7 +77,7 @@ def verify_readme_contract() -> None:
         "README section 'Mountain terrain map' is missing",
     )
     require(
-        "[Mountain terrain map plan](mountain_terrain_map_plan.md)" in readme_text,
+        "[Mountain terrain map plan](plans/mountain_terrain_map_plan.md)" in readme_text,
         "README does not link to the mountain terrain map plan",
     )
     require(
@@ -87,7 +87,7 @@ def verify_readme_contract() -> None:
 
 
 def unrelated_gate_changes(status_lines: list[str]) -> list[str]:
-    allowed = "?? mountain_terrain_map_plan.md"
+    allowed = "?? plans/mountain_terrain_map_plan.md"
     return [line for line in status_lines if line and line != allowed]
 
 
@@ -117,12 +117,12 @@ def verify_plan_contract() -> None:
     )
     require(
         "# allowed before MAP-000: the canonical untracked "
-        "mountain_terrain_map_plan.md draft itself"
+        "plans/mountain_terrain_map_plan.md draft itself"
         in plan_text,
         "repository gate does not allow the canonical untracked map plan draft",
     )
     require(
-        not unrelated_gate_changes(["?? mountain_terrain_map_plan.md"]),
+        not unrelated_gate_changes(["?? plans/mountain_terrain_map_plan.md"]),
         "gate classifier rejected the canonical map plan draft",
     )
     require(

@@ -636,7 +636,7 @@ Done when ArduPilot publishes native ROS 2 topics through DDS inside Docker.
 A standalone ticketed plan for the mountain terrain, two-drone target/chaser scenario, per-drone camera views, and RViz2 visualization is provided in:
 
 ```text
-two_drone_mountain_scenario_plan.md
+plans/two_drone_mountain_scenario_plan.md
 ```
 
 Recommended MVP design: keep one ArduPilot-controlled chaser drone and make the sky drone a scripted MuJoCo target. Upgrade to two ArduPilot SITL instances only after the MVP passes.
