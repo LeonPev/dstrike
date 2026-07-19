@@ -8,6 +8,8 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 from typing import Mapping
 
+from src.physics.scenario_config import MountainMapConfig, load_mountain_map_config
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS_DIR = PROJECT_ROOT / "models" / "scenarios"
@@ -32,6 +34,9 @@ class ScenarioConfig:
     name: str
     xml_path: Path
     marker_specs: tuple[ScenarioMarkerSpec, ...]
+    xml_string: str
+    vfs_files: Mapping[str, bytes]
+    config: MountainMapConfig | None
 
 
 def scenario_from_env() -> ScenarioConfig:
@@ -59,10 +64,20 @@ def scenario_from_name(name: str | None) -> ScenarioConfig:
             f"unknown scenario {name!r}; expected one of: {allowed}"
         )
 
+    config_path = SCENARIOS_DIR / normalized_name / "scenario.yaml"
+    config = (
+        load_mountain_map_config(config_path)
+        if normalized_name == "mountain_map"
+        else None
+    )
+    xml_string = xml_path.read_text(encoding="utf-8")
     return ScenarioConfig(
         name=normalized_name,
         xml_path=xml_path,
         marker_specs=scenario_marker_specs_from_xml(xml_path),
+        xml_string=xml_string,
+        vfs_files={},
+        config=config,
     )
 
 
@@ -87,7 +102,7 @@ def build_scenario_model_xml(
         raise FileNotFoundError(f"scenario XML not found: {scenario.xml_path}")
 
     base_root = ET.parse(base_path).getroot()
-    scenario_root = ET.parse(scenario.xml_path).getroot()
+    scenario_root = ET.fromstring(scenario.xml_string)
 
     _merge_section_children(base_root, scenario_root, "asset")
     _merge_section_children(base_root, scenario_root, "worldbody")

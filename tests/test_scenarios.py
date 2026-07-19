@@ -11,6 +11,7 @@ from src.physics.scenarios import (
     scenario_from_name,
     scenario_marker_specs_from_xml,
 )
+from src.physics.scenario_config import heading_quaternion_wxyz
 
 
 BASE_MODEL_PATH = Path(__file__).resolve().parents[1] / "models" / "quad.xml"
@@ -152,3 +153,33 @@ def test_empty_world_has_no_scenario_markers() -> None:
     scenario = scenario_from_name("empty_world")
 
     assert scenario.marker_specs == ()
+
+
+def test_mountain_map_uses_canonical_xml_lookup_and_strict_config() -> None:
+    scenario = scenario_from_name("mountain-map")
+
+    assert scenario.xml_path.name == "mountain_map.xml"
+    assert scenario.xml_string == scenario.xml_path.read_text(encoding="utf-8")
+    assert scenario.vfs_files == {}
+    assert scenario.config is not None
+    assert scenario.config.name == "mountain_map"
+    assert scenario.config.terrain.resolution == 129
+    assert scenario.config.replaces_ground_plane is True
+
+
+def test_heading_quaternion_contract() -> None:
+    assert heading_quaternion_wxyz(0) == (1.0, 0.0, 0.0, 0.0)
+    assert all(
+        abs(actual - expected) < 1e-12
+        for actual, expected in zip(
+            heading_quaternion_wxyz(90),
+            (2**-0.5, 0.0, 0.0, 2**-0.5),
+        )
+    )
+    assert all(
+        abs(actual - expected) < 1e-12
+        for actual, expected in zip(
+            heading_quaternion_wxyz(-90),
+            (2**-0.5, 0.0, 0.0, -(2**-0.5)),
+        )
+    )

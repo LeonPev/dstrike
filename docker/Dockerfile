@@ -54,12 +54,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
         libegl1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --no-cache-dir \
-        mujoco \
-        numpy \
-        pymavlink \
-        pytest
-
 RUN useradd --create-home --shell /bin/bash ardupilot \
     && printf 'ardupilot ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/ardupilot \
     && chmod 0440 /etc/sudoers.d/ardupilot \
@@ -83,6 +77,9 @@ RUN export USER=ardupilot HOME=/home/ardupilot \
     && ./waf copter
 
 USER root
+
+COPY docker/requirements.txt /tmp/requirements.txt
+RUN python3 -m pip install --no-cache-dir -r /tmp/requirements.txt
 
 RUN git config --system --add safe.directory /opt/ardupilot \
     && printf '%s\n' '#!/bin/sh' 'exec python3 -m pytest "$@"' > /usr/local/bin/pytest \
