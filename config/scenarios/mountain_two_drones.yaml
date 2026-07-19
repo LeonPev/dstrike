@@ -1,0 +1,34 @@
+name: mountain_two_drones
+frame_id: world
+map:
+  name: mountain_map
+
+target_drone:
+  name: target
+  start_xy_m: [-110.0, 0.0]
+  heading_deg: 0.0
+  speed_mps: 1.8
+  altitude_agl_m: 35.0
+  route_length_m: 240.0
+  route_behavior: ping_pong
+
+chaser_drone:
+  name: chaser
+  start_xy_m: [-120.0, -25.0]
+  heading_deg: 0.0
+  initial_agl_m: 0.3
+  takeoff_agl_m: 12.0
+  formation_offset_target_body_m: [-8.0, -5.0, 0.0]
+
+safety:
+  mission_timeout_s: 120.0
+  formation_error_threshold_m: 5.0
+  formation_hold_required_s: 10.0
+  min_terrain_clearance_m: 5.0
+  min_drone_separation_m: 3.0
+  max_chaser_speed_mps: 12.0
+  geofence_margin_m: 5.0
+
+visualization:
+  camera_rate_hz: 5.0
+  marker_rate_hz: 5.0
