@@ -127,7 +127,25 @@ For manual MAP-005 signoff, open
 `http://localhost:6080/vnc.html?autoconnect=true&resize=scale`, then confirm
 RViz shows the green terrain surface, tree and rock markers, scenario markers,
 the drone inside its yellow map-scale locator ring, and the live `Front Camera`
-panel. Finish with `make down`.
+panel. The mountain spawn includes a finite yellow launch pad so the drone rests
+level instead of balancing directly on a heightfield triangle.
+
+To verify real flight while watching RViz, leave the browser open and run:
+
+```bash
+make down
+make up-map-viz
+docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash && python3 scripts/mountain_vertical_flight_probe.py'
+make down
+```
+
+The bounded probe waits for ArduPilot local-position readiness, then arms,
+takes off relative to the launch height, holds for 20 seconds, commands a
+4-second ascent and descent, lands on the pad, and disarms. It prints
+`PASS: mountain vertical takeoff, hover, up/down, and landing verified` only
+after every phase passes. All flight thresholds and timeouts are available via
+`python3 scripts/mountain_vertical_flight_probe.py --help` inside the `ros2`
+container.
 
 ## Configuration
 

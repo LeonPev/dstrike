@@ -26,8 +26,10 @@ from src.physics.ros_camera import CameraConfig, SimCameraPublisher
 from src.physics.ros_visualization import SimVisualizationPublisher
 from src.physics.scenarios import (
     DEFAULT_SCENARIO_NAME,
+    ScenarioConfig,
     build_scenario_model_xml,
     marker_specs_from_model_xml,
+    mountain_launch_pad_top_z,
     scenario_from_env,
     scenario_from_name,
 )
@@ -138,11 +140,20 @@ def reset_after_frames_from_env(values: dict[str, str] | None = None) -> int:
     return result
 
 
-def scenario_spawn_pose(scenario: object) -> SpawnPose:
+def scenario_spawn_pose(scenario: ScenarioConfig) -> SpawnPose:
     if scenario.config is None:
-        return SpawnPose((0.0, 0.0, 1.0), (1.0, 0.0, 0.0, 0.0), 0.0, 0.0)
+        return SpawnPose(
+            (0.0, 0.0, 1.0),
+            (1.0, 0.0, 0.0, 0.0),
+            0.0,
+            0.0,
+            0.0,
+        )
     terrain = TerrainMap.from_config(scenario.config, scenario.xml_path.parent / scenario.name)
-    return terrain.safe_spawn_pose(scenario.config)
+    return terrain.safe_spawn_pose(
+        scenario.config,
+        launch_surface_height_m=mountain_launch_pad_top_z(scenario),
+    )
 
 
 def log_frame(

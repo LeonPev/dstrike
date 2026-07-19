@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from typing import Mapping
 
 from src.physics.scenario_config import MountainMapConfig, load_mountain_map_config
+from src.physics.terrain_map import TerrainMap
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS_DIR = PROJECT_ROOT / "models" / "scenarios"
 DEFAULT_SCENARIO_NAME = "landing_pad"
 SCENARIO_ENV_VAR = "SCENARIO"
+MOUNTAIN_LAUNCH_PAD_GEOM_NAME = "scenario_landing_pad"
 
 
 @dataclass(frozen=True)
@@ -74,15 +77,20 @@ def scenario_from_name(name: str | None) -> ScenarioConfig:
     vfs_files: dict[str, bytes] = {}
     if config is not None:
         asset_path = SCENARIOS_DIR / normalized_name / "heightfield.bin"
-        if not asset_path.is_file():
+        height_map_path = SCENARIOS_DIR / normalized_name / "heightfield_m.npy"
+        if not asset_path.is_file() or not height_map_path.is_file():
             raise FileNotFoundError(
                 "mountain_map assets missing; run `make generate-map`"
             )
         vfs_files["mountain_map/heightfield.bin"] = asset_path.read_bytes()
+
+    marker_root = ET.fromstring(xml_string)
+    if config is not None:
+        _patch_mountain_scenario_root(marker_root, config, config_path.parent)
     return ScenarioConfig(
         name=normalized_name,
         xml_path=xml_path,
-        marker_specs=scenario_marker_specs_from_xml(xml_path),
+        marker_specs=_marker_specs_from_root(marker_root, ("scenario_",)),
         xml_string=xml_string,
         vfs_files=vfs_files,
         config=config,
@@ -113,7 +121,7 @@ def build_scenario_model_xml(
     scenario_root = ET.fromstring(scenario.xml_string)
 
     if scenario.config is not None:
-        _prepare_mountain_map_xml(base_root, scenario_root, scenario.config)
+        _prepare_mountain_map_xml(base_root, scenario_root, scenario)
 
     _merge_section_children(base_root, scenario_root, "asset")
     _merge_section_children(base_root, scenario_root, "visual")
@@ -124,9 +132,31 @@ def build_scenario_model_xml(
 def _prepare_mountain_map_xml(
     base_root: ET.Element,
     scenario_root: ET.Element,
-    config: MountainMapConfig,
+    scenario: ScenarioConfig,
 ) -> None:
     """Patch config-owned hfield dimensions and remove the flat base plane."""
+    config = scenario.config
+    if config is None:
+        raise ValueError("mountain_map scenario config is required")
+    _patch_mountain_scenario_root(
+        scenario_root,
+        config,
+        scenario.xml_path.parent / scenario.name,
+    )
+
+    worldbody = base_root.find("worldbody")
+    if worldbody is not None:
+        for geom in list(worldbody.findall("geom")):
+            if geom.attrib.get("name") == "visual_ground":
+                worldbody.remove(geom)
+
+
+def _patch_mountain_scenario_root(
+    scenario_root: ET.Element,
+    config: MountainMapConfig,
+    asset_dir: Path,
+) -> None:
+    """Patch the heightfield and finite launch pad from canonical map data."""
     hfield = scenario_root.find("./asset/hfield[@name='mountain_hfield']")
     if hfield is None:
         raise ValueError("mountain_map XML must define mountain_hfield")
@@ -144,18 +174,71 @@ def _prepare_mountain_map_xml(
         ),
     )
 
-    worldbody = base_root.find("worldbody")
-    if worldbody is not None:
-        for geom in list(worldbody.findall("geom")):
-            if geom.attrib.get("name") == "visual_ground":
-                worldbody.remove(geom)
+    launch_pad = scenario_root.find(
+        f"./worldbody/geom[@name='{MOUNTAIN_LAUNCH_PAD_GEOM_NAME}']"
+    )
+    if launch_pad is None:
+        raise ValueError(
+            f"mountain_map XML must define {MOUNTAIN_LAUNCH_PAD_GEOM_NAME}"
+        )
+    if launch_pad.attrib.get("type") != "cylinder":
+        raise ValueError("mountain launch pad must be a cylinder")
+    radius_m, half_height_m = _parse_float_tuple(
+        launch_pad.attrib.get("size", ""),
+        2,
+        MOUNTAIN_LAUNCH_PAD_GEOM_NAME,
+    )
+    if not all(
+        math.isfinite(value) and value > 0.0
+        for value in (radius_m, half_height_m)
+    ):
+        raise ValueError("mountain launch pad size values must be positive and finite")
+
+    terrain = TerrainMap.from_config(config, asset_dir)
+    terrain_height_m = terrain.height_at(config.spawn.x_m, config.spawn.y_m)
+    launch_pad.set(
+        "pos",
+        " ".join(
+            f"{value:.9g}"
+            for value in (
+                config.spawn.x_m,
+                config.spawn.y_m,
+                terrain_height_m + half_height_m,
+            )
+        ),
+    )
+
+
+def mountain_launch_pad_top_z(scenario: ScenarioConfig) -> float:
+    """Return the configured mountain launch surface height in world z-up."""
+    if scenario.config is None:
+        raise ValueError("mountain launch pad requires a configured map scenario")
+    pads = [
+        marker
+        for marker in scenario.marker_specs
+        if marker.namespace == "landing_pad"
+    ]
+    if len(pads) != 1:
+        raise ValueError("mountain_map must define exactly one landing pad")
+    pad = pads[0]
+    top_z = pad.position_xyz[2] + pad.scale_xyz[2] / 2.0
+    if not math.isfinite(top_z):
+        raise ValueError("mountain launch pad top must be finite")
+    return top_z
 
 
 def scenario_marker_specs_from_xml(
     xml_path: str | Path,
 ) -> tuple[ScenarioMarkerSpec, ...]:
     """Build RViz markers from the same MuJoCo scenario geoms used by physics."""
-    return _marker_specs_from_root(ET.parse(xml_path).getroot(), ("scenario_",))
+    path = Path(xml_path)
+    root = ET.parse(path).getroot()
+    if path.stem == "mountain_map":
+        config_path = path.parent / path.stem / "scenario.yaml"
+        if config_path.is_file():
+            config = load_mountain_map_config(config_path)
+            _patch_mountain_scenario_root(root, config, config_path.parent)
+    return _marker_specs_from_root(root, ("scenario_",))
 
 
 def marker_specs_from_model_xml(model_xml: str) -> tuple[ScenarioMarkerSpec, ...]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from src.physics.scenarios import (
     scenario_marker_specs_from_xml,
 )
 from src.physics.scenario_config import heading_quaternion_wxyz
+from src.physics.terrain_map import TerrainMap
 
 
 BASE_MODEL_PATH = Path(__file__).resolve().parents[1] / "models" / "quad.xml"
@@ -166,12 +168,14 @@ def test_mountain_map_uses_canonical_xml_lookup_and_strict_config() -> None:
     assert scenario.config.name == "mountain_map"
     assert scenario.config.terrain.resolution == 129
     assert scenario.config.replaces_ground_plane is True
+    assert scenario_marker_specs_from_xml(scenario.xml_path) == scenario.marker_specs
 
 
 def test_mountain_map_patches_hfield_and_removes_flat_ground() -> None:
+    scenario = scenario_from_name("mountain_map")
     model_xml = build_scenario_model_xml(
         BASE_MODEL_PATH,
-        scenario_from_name("mountain_map"),
+        scenario,
     )
     root = ET.fromstring(model_xml)
     hfield = root.find("./asset/hfield[@name='mountain_hfield']")
@@ -182,6 +186,46 @@ def test_mountain_map_patches_hfield_and_removes_flat_ground() -> None:
     }
     assert "mountain_terrain" in geom_names
     assert "visual_ground" not in geom_names
+    terrain_geom = root.find("./worldbody/geom[@name='mountain_terrain']")
+    assert terrain_geom is not None
+    assert terrain_geom.attrib["group"] == "2"
+
+    launch_pad = root.find("./worldbody/geom[@name='scenario_landing_pad']")
+    assert launch_pad is not None
+    assert launch_pad.attrib["type"] == "cylinder"
+    assert launch_pad.attrib["group"] == "1"
+    pad_radius_m, pad_half_height_m = (
+        float(value) for value in launch_pad.attrib["size"].split()
+    )
+    assert (pad_radius_m, pad_half_height_m) == (1.0, 0.05)
+    assert scenario.config is not None
+    terrain = TerrainMap.from_config(
+        scenario.config,
+        scenario.xml_path.parent / scenario.name,
+    )
+    terrain_height_m = terrain.height_at(
+        scenario.config.spawn.x_m,
+        scenario.config.spawn.y_m,
+    )
+    pad_position = tuple(float(value) for value in launch_pad.attrib["pos"].split())
+    assert pad_position[:2] == (
+        scenario.config.spawn.x_m,
+        scenario.config.spawn.y_m,
+    )
+    assert math.isclose(
+        pad_position[2] - pad_half_height_m,
+        terrain_height_m,
+        abs_tol=1e-6,
+    )
+
+    landing_pad_marker = next(
+        marker
+        for marker in marker_specs_from_model_xml(model_xml)
+        if marker.namespace == "landing_pad"
+    )
+    assert landing_pad_marker.position_xyz == pad_position
+    assert landing_pad_marker.scale_xyz == (2.0, 2.0, 0.1)
+    assert landing_pad_marker.color_rgba == (0.95, 0.65, 0.08, 1.0)
 
     sun = root.find("./worldbody/light[@name='mountain_sun']")
     assert sun is not None

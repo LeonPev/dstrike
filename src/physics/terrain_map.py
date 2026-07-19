@@ -17,6 +17,7 @@ class SpawnPose:
     position_xyz: tuple[float, float, float]
     quaternion_wxyz: tuple[float, float, float, float]
     terrain_height_m: float
+    launch_surface_height_m: float
     heading_deg: float
 
 
@@ -61,13 +62,31 @@ class TerrainMap:
             return h00 + tx * (h10 - h00) + ty * (h01 - h00)
         return h11 + (1.0 - tx) * (h01 - h11) + (1.0 - ty) * (h10 - h11)
 
-    def safe_spawn_pose(self, config: MountainMapConfig) -> SpawnPose:
+    def safe_spawn_pose(
+        self,
+        config: MountainMapConfig,
+        launch_surface_height_m: float | None = None,
+    ) -> SpawnPose:
         x_m, y_m = config.spawn.x_m, config.spawn.y_m
         terrain_height = self.height_at(x_m, y_m)
+        surface_height = (
+            terrain_height
+            if launch_surface_height_m is None
+            else float(launch_surface_height_m)
+        )
+        if not math.isfinite(surface_height):
+            raise ValueError("launch surface height must be finite")
+        if surface_height < terrain_height:
+            raise ValueError("launch surface must not be below the terrain")
         return SpawnPose(
-            position_xyz=(x_m, y_m, terrain_height + config.terrain.spawn_clearance_m),
+            position_xyz=(
+                x_m,
+                y_m,
+                surface_height + config.terrain.spawn_clearance_m,
+            ),
             quaternion_wxyz=config.spawn.quaternion_wxyz,
             terrain_height_m=terrain_height,
+            launch_surface_height_m=surface_height,
             heading_deg=config.spawn.normalized_heading_deg,
         )
 
@@ -100,7 +119,7 @@ def physics_height_at(quad: object, x_m: float, y_m: float) -> float:
         quad.data,
         np.array([x_m, y_m, origin_z], dtype=np.float64),
         np.array([0.0, 0.0, -1.0], dtype=np.float64),
-        None,
+        np.array([0, 0, 1, 0, 0, 0], dtype=np.uint8),
         True,
         quad.body_id,
         hit_id,

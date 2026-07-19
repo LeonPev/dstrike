@@ -11,8 +11,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from src.physics.mujoco_json import scenario_spawn_pose
 from src.physics.scenarios import scenario_from_name
-from src.physics.terrain_map import TerrainMap
 
 
 def main() -> None:
@@ -21,8 +21,7 @@ def main() -> None:
     args = parser.parse_args()
     scenario = scenario_from_name("mountain_map")
     assert scenario.config is not None
-    terrain = TerrainMap.from_config(scenario.config, scenario.xml_path.parent / scenario.name)
-    spawn = terrain.safe_spawn_pose(scenario.config)
+    spawn = scenario_spawn_pose(scenario)
     if args.fields:
         print(*spawn.position_xyz, spawn.heading_deg)
         return
@@ -31,6 +30,7 @@ def main() -> None:
         "y_m": spawn.position_xyz[1],
         "z_m": spawn.position_xyz[2],
         "terrain_height_m": spawn.terrain_height_m,
+        "launch_surface_height_m": spawn.launch_surface_height_m,
         "clearance_m": scenario.config.terrain.spawn_clearance_m,
         "heading_deg": spawn.heading_deg,
         "quaternion_wxyz": spawn.quaternion_wxyz,

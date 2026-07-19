@@ -12,6 +12,7 @@ sys.path.insert(
 
 from drone_bridge.mavlink_bridge import (  # noqa: E402
     ARDUPILOT_FORCE_ARM_MAGIC,
+    ARDUPILOT_FORCE_DISARM_MAGIC,
     MavlinkWorker,
     VELOCITY_COMMAND_TIMEOUT_S,
     VELOCITY_ZERO_HOLD_AFTER_TIMEOUT_S,
@@ -90,6 +91,31 @@ def test_pending_arm_waits_for_local_position_ned() -> None:
     assert arm_call[2] == FakeMavlink.MAV_CMD_COMPONENT_ARM_DISARM
     assert arm_call[4] == 1.0
     assert arm_call[5] == ARDUPILOT_FORCE_ARM_MAGIC
+
+
+def test_normal_disarm_keeps_ardupilot_safety_checks() -> None:
+    worker, connection, _ = ready_worker()
+
+    worker._send_arm(False)
+
+    assert len(connection.mav.command_long_calls) == 1
+    disarm_call = connection.mav.command_long_calls[0]
+    assert disarm_call[2] == FakeMavlink.MAV_CMD_COMPONENT_ARM_DISARM
+    assert disarm_call[4] == 0.0
+    assert disarm_call[5] == 0.0
+
+
+def test_explicit_force_disarm_uses_ardupilot_magic() -> None:
+    worker, connection, _ = ready_worker()
+
+    worker.enqueue_force_disarm()
+    worker._drain_commands()
+
+    assert len(connection.mav.command_long_calls) == 1
+    disarm_call = connection.mav.command_long_calls[0]
+    assert disarm_call[2] == FakeMavlink.MAV_CMD_COMPONENT_ARM_DISARM
+    assert disarm_call[4] == 0.0
+    assert disarm_call[5] == ARDUPILOT_FORCE_DISARM_MAGIC
 
 
 def test_velocity_command_is_sent_as_guided_local_ned_setpoint() -> None:

@@ -43,21 +43,34 @@ def geom_id(model: mujoco.MjModel, name: str) -> int:
     return int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name))
 
 
-def ray_height(quad: MuJoCoQuad, terrain_id: int, x_m: float, y_m: float) -> float:
+def ray_height(
+    quad: MuJoCoQuad,
+    expected_geom_id: int,
+    x_m: float,
+    y_m: float,
+    geom_group: int = 2,
+) -> float:
     hit_id = np.array([-1], dtype=np.int32)
+    geom_group_mask = np.zeros(6, dtype=np.uint8)
+    geom_group_mask[geom_group] = 1
     origin_z = 100.0
     distance = mujoco.mj_ray(
         quad.model,
         quad.data,
         np.array([x_m, y_m, origin_z], dtype=np.float64),
         np.array([0.0, 0.0, -1.0], dtype=np.float64),
-        None,
+        geom_group_mask,
         True,
         quad.body_id,
         hit_id,
     )
-    assert distance >= 0.0, f"ray missed terrain at ({x_m}, {y_m})"
-    assert int(hit_id[0]) == terrain_id, (x_m, y_m, int(hit_id[0]), terrain_id)
+    assert distance >= 0.0, f"ray missed geom group {geom_group} at ({x_m}, {y_m})"
+    assert int(hit_id[0]) == expected_geom_id, (
+        x_m,
+        y_m,
+        int(hit_id[0]),
+        expected_geom_id,
+    )
     return origin_z - float(distance)
 
 
@@ -89,8 +102,25 @@ def main() -> None:
     model_xml = build_scenario_model_xml(DEFAULT_MODEL_PATH, scenario)
     quad = MuJoCoQuad(model_xml=model_xml, vfs_files=scenario.vfs_files)
     terrain_id = geom_id(quad.model, "mountain_terrain")
+    launch_pad_id = geom_id(quad.model, "scenario_landing_pad")
     assert terrain_id >= 0
+    assert launch_pad_id >= 0
+    assert int(quad.model.geom_group[terrain_id]) == 2
+    assert int(quad.model.geom_group[launch_pad_id]) == 1
     assert geom_id(quad.model, "visual_ground") == -1
+
+    launch_pad_height = ray_height(
+        quad,
+        launch_pad_id,
+        config.spawn.x_m,
+        config.spawn.y_m,
+        geom_group=1,
+    )
+    expected_launch_pad_height = (
+        float(quad.model.geom_pos[launch_pad_id, 2])
+        + float(quad.model.geom_size[launch_pad_id, 1])
+    )
+    assert abs(launch_pad_height - expected_launch_pad_height) <= 1e-6
 
     hfield_id = int(quad.model.geom_dataid[terrain_id])
     assert tuple(quad.model.hfield_size[hfield_id]) == (

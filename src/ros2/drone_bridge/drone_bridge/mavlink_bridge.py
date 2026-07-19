@@ -31,6 +31,7 @@ LOCAL_NED_VELOCITY_TYPE_MASK = 1479
 GUIDED_MODE_REQUEST_INTERVAL_S = 2.0
 TAKEOFF_GUIDED_WAIT_S = 45.0
 ARDUPILOT_FORCE_ARM_MAGIC = 2989.0
+ARDUPILOT_FORCE_DISARM_MAGIC = 21196.0
 VELOCITY_COMMAND_REFRESH_INTERVAL_S = 0.2
 VELOCITY_COMMAND_TIMEOUT_S = 0.75
 VELOCITY_ZERO_HOLD_AFTER_TIMEOUT_S = 2.0
@@ -39,6 +40,11 @@ VELOCITY_ZERO_HOLD_AFTER_TIMEOUT_S = 2.0
 @dataclass(frozen=True)
 class ArmCommand:
     arm: bool
+
+
+@dataclass(frozen=True)
+class ForceDisarmCommand:
+    pass
 
 
 @dataclass(frozen=True)
@@ -75,7 +81,11 @@ class MavlinkWorker:
         self._endpoint = endpoint
         self._logger = logger
         self._commands: queue.Queue[
-            ArmCommand | TakeoffCommand | LandCommand | VelocityCommand
+            ArmCommand
+            | ForceDisarmCommand
+            | TakeoffCommand
+            | LandCommand
+            | VelocityCommand
         ] = queue.Queue()
         self._state_lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -113,6 +123,9 @@ class MavlinkWorker:
 
     def enqueue_arm(self, arm: bool) -> None:
         self._commands.put(ArmCommand(arm=bool(arm)))
+
+    def enqueue_force_disarm(self) -> None:
+        self._commands.put(ForceDisarmCommand())
 
     def enqueue_takeoff(self, altitude_m: float) -> None:
         self._commands.put(TakeoffCommand(altitude_m=float(altitude_m)))
@@ -290,6 +303,10 @@ class MavlinkWorker:
                     self._pending_arm = False
                     self._clear_velocity_command()
                     self._send_arm(False)
+            elif isinstance(command, ForceDisarmCommand):
+                self._pending_arm = False
+                self._clear_velocity_command()
+                self._send_arm(False, force_disarm=True)
             elif isinstance(command, TakeoffCommand):
                 self._queue_takeoff(command.altitude_m)
             elif isinstance(command, LandCommand):
@@ -359,25 +376,33 @@ class MavlinkWorker:
                 1,
             )
 
-    def _send_arm(self, arm: bool) -> None:
+    def _send_arm(self, arm: bool, *, force_disarm: bool = False) -> None:
         if not self._target_ready():
             return
         mavlink = self._mavutil.mavlink
-        force_arm = ARDUPILOT_FORCE_ARM_MAGIC if arm else 0.0
+        if arm:
+            force_magic = ARDUPILOT_FORCE_ARM_MAGIC
+        elif force_disarm:
+            force_magic = ARDUPILOT_FORCE_DISARM_MAGIC
+        else:
+            force_magic = 0.0
         self._connection.mav.command_long_send(
             self._target_system,
             self._target_component,
             mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
             0,
             1.0 if arm else 0.0,
-            force_arm,
+            force_magic,
             0,
             0,
             0,
             0,
             0,
         )
-        self._logger.info(f"sent MAVLink {'arm' if arm else 'disarm'} command")
+        action = "arm"
+        if not arm:
+            action = "force-disarm" if force_disarm else "disarm"
+        self._logger.info(f"sent MAVLink {action} command")
 
     def _queue_arm(self) -> None:
         if not self._target_ready():
@@ -627,6 +652,12 @@ class MavlinkBridgeNode(Node):
         self._odom_pub = self.create_publisher(Odometry, "/drone/odom", 10)
         self.create_subscription(Bool, "/drone/arm", self._on_arm, 10)
         self.create_subscription(
+            Bool,
+            "/drone/force_disarm",
+            self._on_force_disarm,
+            10,
+        )
+        self.create_subscription(
             Float32,
             "/drone/takeoff_alt_m",
             self._on_takeoff_altitude,
@@ -646,6 +677,10 @@ class MavlinkBridgeNode(Node):
 
     def _on_arm(self, message: Bool) -> None:
         self._worker.enqueue_arm(bool(message.data))
+
+    def _on_force_disarm(self, message: Bool) -> None:
+        if bool(message.data):
+            self._worker.enqueue_force_disarm()
 
     def _on_takeoff_altitude(self, message: Float32) -> None:
         self._worker.enqueue_takeoff(float(message.data))
@@ -678,8 +713,10 @@ class MavlinkBridgeNode(Node):
             self.get_logger().error(f"MAVLink bridge error: {snapshot.error}")
 
         if snapshot.heartbeat is not None:
+            heartbeat = dict(snapshot.heartbeat)
+            heartbeat["has_local_position_ned"] = snapshot.has_local_position_ned
             self._heartbeat_pub.publish(
-                String(data=json.dumps(snapshot.heartbeat, sort_keys=True))
+                String(data=json.dumps(heartbeat, sort_keys=True))
             )
 
         if snapshot.local_position is not None:

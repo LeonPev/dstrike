@@ -32,6 +32,7 @@ def main() -> int:
     sys.path.insert(0, "/workspace")
     from src.physics.scenario_config import load_mountain_map_config
     from src.physics.ros_visualization import terrain_mesh, terrain_mesh_height_at
+    from src.physics.scenarios import scenario_from_name
 
     config = load_mountain_map_config(asset_dir / "scenario.yaml")
     heights = np.load(asset_dir / "heightfield_m.npy")
@@ -128,6 +129,45 @@ def main() -> int:
                 f"nature marker {marker.ns}/{marker.id} base {marker_base_z} "
                 f"does not touch displayed terrain {expected_ground_z}"
             )
+
+    scenario = scenario_from_name("mountain_map")
+    expected_pad = next(
+        marker
+        for marker in scenario.marker_specs
+        if marker.namespace == "landing_pad"
+    )
+    scenario_markers = received[TOPICS[2]].markers
+    landing_pads = [marker for marker in scenario_markers if marker.ns == "landing_pad"]
+    if len(landing_pads) != 1:
+        fail(f"expected exactly one landing-pad marker, got {len(landing_pads)}")
+    landing_pad = landing_pads[0]
+    if landing_pad.header.frame_id != "world":
+        fail("landing-pad marker frame is not world")
+    if landing_pad.type != Marker.CYLINDER:
+        fail("landing-pad marker is not a cylinder")
+    actual_pad_position = (
+        landing_pad.pose.position.x,
+        landing_pad.pose.position.y,
+        landing_pad.pose.position.z,
+    )
+    actual_pad_scale = (
+        landing_pad.scale.x,
+        landing_pad.scale.y,
+        landing_pad.scale.z,
+    )
+    if any(
+        abs(actual - expected) > 1e-6
+        for actual, expected in zip(actual_pad_position, expected_pad.position_xyz)
+    ):
+        fail(
+            f"landing-pad position {actual_pad_position} != "
+            f"{expected_pad.position_xyz}"
+        )
+    if any(
+        abs(actual - expected) > 1e-6
+        for actual, expected in zip(actual_pad_scale, expected_pad.scale_xyz)
+    ):
+        fail(f"landing-pad scale {actual_pad_scale} != {expected_pad.scale_xyz}")
 
     del subscriptions
     node.destroy_node()
