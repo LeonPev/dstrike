@@ -129,6 +129,8 @@ RViz shows the green terrain surface, tree and rock markers, scenario markers,
 the drone inside its yellow map-scale locator ring, and the live `Front Camera`
 panel. The mountain spawn includes a finite yellow launch pad so the drone rests
 level instead of balancing directly on a heightfield triangle.
+Two yellow circles near the spawn are expected: the stationary 3 m-diameter
+launch pad and the 5 m-diameter locator attached to the moving drone.
 
 To verify real flight while watching RViz, leave the browser open and run:
 

@@ -76,7 +76,7 @@ def test_local_position_readiness_requires_explicit_bridge_flag() -> None:
     )
 
 
-def test_landed_window_requires_fresh_level_samples_on_the_pad() -> None:
+def test_landed_window_requires_fresh_level_samples_inside_pad_margin() -> None:
     probe = load_probe()
     ground_xyz = (-90.0, -40.0, 12.75)
     samples = [
@@ -91,19 +91,19 @@ def test_landed_window_requires_fresh_level_samples_on_the_pad() -> None:
         "telemetry_max_age_s": 1.0,
         "z_tolerance_m": 0.15,
         "max_abs_vz_m_s": 0.2,
-        "max_xy_error_m": 0.9,
+        "max_xy_error_m": 1.3,
         "max_tilt_deg": 5.0,
     }
 
     assert probe.landed_window_is_stable(**kwargs)
     assert not probe.landed_window_is_stable(**{**kwargs, "now_s": 13.0})
 
-    off_pad = list(samples)
-    off_pad[-1] = probe.GroundTruthSample(
-        11.5, -88.9, -40.0, 12.76, 0.0, 0.2
+    outside_safety_margin = list(samples)
+    outside_safety_margin[-1] = probe.GroundTruthSample(
+        11.5, -88.6, -40.0, 12.76, 0.0, 0.2
     )
     assert not probe.landed_window_is_stable(
-        **{**kwargs, "samples": off_pad}
+        **{**kwargs, "samples": outside_safety_margin}
     )
 
     tipped = list(samples)

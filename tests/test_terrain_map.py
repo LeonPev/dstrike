@@ -75,12 +75,20 @@ def test_safe_spawn_and_mujoco_terrain_parity_at_sentinel_points() -> None:
     assert spawn.quaternion_wxyz == scenario.config.spawn.quaternion_wxyz
 
 
-def test_mountain_launch_pad_provides_stable_level_contact() -> None:
+@pytest.mark.parametrize("x_offset_m", [0.0, 1.3])
+def test_mountain_launch_pad_provides_stable_level_contact(
+    x_offset_m: float,
+) -> None:
     scenario = scenario_from_name("mountain_map")
     model_xml = build_scenario_model_xml(DEFAULT_MODEL_PATH, scenario)
     quad = MuJoCoQuad(model_xml=model_xml, vfs_files=scenario.vfs_files)
     spawn = scenario_spawn_pose(scenario)
-    state = quad.reset(spawn.position_xyz, spawn.quaternion_wxyz)
+    initial_position = (
+        spawn.position_xyz[0] + x_offset_m,
+        spawn.position_xyz[1],
+        spawn.position_xyz[2],
+    )
+    state = quad.reset(initial_position, spawn.quaternion_wxyz)
 
     for _ in range(1000):
         state = quad.step((0.0, 0.0, 0.0, 0.0))
@@ -125,7 +133,10 @@ def test_mountain_launch_pad_provides_stable_level_contact() -> None:
     roll_deg, pitch_deg = _roll_pitch_degrees(state.quaternion)
     assert abs(roll_deg) <= 0.5
     assert abs(pitch_deg) <= 0.5
-    assert np.linalg.norm(state.position[:2] - np.asarray(spawn.position_xyz[:2])) <= 0.02
+    assert (
+        np.linalg.norm(state.position[:2] - np.asarray(initial_position[:2]))
+        <= 0.02
+    )
     assert np.linalg.norm(state.velocity) <= 0.02
     assert np.linalg.norm(state.angular_velocity) <= 0.05
 

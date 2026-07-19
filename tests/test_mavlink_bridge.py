@@ -36,7 +36,9 @@ class FakeLogger:
 
 class FakeMavlink:
     MAV_CMD_COMPONENT_ARM_DISARM = 400
+    MAV_CMD_NAV_LAND = 21
     MAV_FRAME_LOCAL_NED = 1
+    MAV_MODE_FLAG_CUSTOM_MODE_ENABLED = 1
 
 
 class FakeMavutil:
@@ -47,6 +49,7 @@ class FakeMav:
     def __init__(self) -> None:
         self.command_long_calls: list[tuple[object, ...]] = []
         self.set_position_target_local_ned_calls: list[tuple[object, ...]] = []
+        self.set_mode_calls: list[tuple[object, ...]] = []
 
     def command_long_send(self, *args: object) -> None:
         self.command_long_calls.append(args)
@@ -54,10 +57,16 @@ class FakeMav:
     def set_position_target_local_ned_send(self, *args: object) -> None:
         self.set_position_target_local_ned_calls.append(args)
 
+    def set_mode_send(self, *args: object) -> None:
+        self.set_mode_calls.append(args)
+
 
 class FakeConnection:
     def __init__(self) -> None:
         self.mav = FakeMav()
+
+    def mode_mapping(self) -> dict[str, int]:
+        return {"GUIDED": 4}
 
 
 def ready_worker() -> tuple[MavlinkWorker, FakeConnection, FakeLogger]:
@@ -116,6 +125,21 @@ def test_explicit_force_disarm_uses_ardupilot_magic() -> None:
     assert disarm_call[2] == FakeMavlink.MAV_CMD_COMPONENT_ARM_DISARM
     assert disarm_call[4] == 0.0
     assert disarm_call[5] == ARDUPILOT_FORCE_DISARM_MAGIC
+
+
+def test_repeated_land_commands_do_not_reenter_guided_mode() -> None:
+    worker, connection, _ = ready_worker()
+    worker._heartbeat = {"mode": "LAND"}
+
+    worker._send_land()
+    worker._send_land()
+
+    assert connection.mav.set_mode_calls == []
+    assert len(connection.mav.command_long_calls) == 2
+    assert all(
+        land_call[2] == FakeMavlink.MAV_CMD_NAV_LAND
+        for land_call in connection.mav.command_long_calls
+    )
 
 
 def test_velocity_command_is_sent_as_guided_local_ned_setpoint() -> None:

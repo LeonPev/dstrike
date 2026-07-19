@@ -364,8 +364,11 @@ def parse_args() -> argparse.Namespace:
     commands.add_argument(
         "--land-max-xy-error-m",
         type=float,
-        default=0.90,
-        help="Maximum landed horizontal distance from the launch-pad center.",
+        default=1.30,
+        help=(
+            "Maximum landed horizontal distance from the launch-pad center; "
+            "the default keeps a 0.20m margin inside the 1.50m pad."
+        ),
     )
     commands.add_argument(
         "--land-max-tilt-deg",

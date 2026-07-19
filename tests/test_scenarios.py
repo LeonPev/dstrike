@@ -197,7 +197,7 @@ def test_mountain_map_patches_hfield_and_removes_flat_ground() -> None:
     pad_radius_m, pad_half_height_m = (
         float(value) for value in launch_pad.attrib["size"].split()
     )
-    assert (pad_radius_m, pad_half_height_m) == (1.0, 0.05)
+    assert (pad_radius_m, pad_half_height_m) == (1.5, 0.05)
     assert scenario.config is not None
     terrain = TerrainMap.from_config(
         scenario.config,
@@ -224,7 +224,7 @@ def test_mountain_map_patches_hfield_and_removes_flat_ground() -> None:
         if marker.namespace == "landing_pad"
     )
     assert landing_pad_marker.position_xyz == pad_position
-    assert landing_pad_marker.scale_xyz == (2.0, 2.0, 0.1)
+    assert landing_pad_marker.scale_xyz == (3.0, 3.0, 0.1)
     assert landing_pad_marker.color_rgba == (0.95, 0.65, 0.08, 1.0)
 
     sun = root.find("./worldbody/light[@name='mountain_sun']")

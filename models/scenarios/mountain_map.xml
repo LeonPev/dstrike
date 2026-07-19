@@ -26,7 +26,7 @@
     <!-- Position is patched from scenario.yaml and the generated terrain.
          Group 1 is isolated from terrain-only ray probes, which use group 2. -->
     <geom name="scenario_landing_pad" type="cylinder" pos="0 0 0"
-          size="1.0 0.05" group="1" material="scenario_landing_pad_mat"
+          size="1.5 0.05" group="1" material="scenario_landing_pad_mat"
           contype="1" conaffinity="1" friction="1.0 0.005 0.0001"/>
   </worldbody>
 </mujoco>

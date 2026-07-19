@@ -492,7 +492,6 @@ class MavlinkWorker:
     def _send_land(self) -> None:
         if not self._target_ready():
             return
-        self._ensure_guided_mode()
         mavlink = self._mavutil.mavlink
         self._connection.mav.command_long_send(
             self._target_system,
