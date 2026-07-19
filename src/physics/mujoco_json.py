@@ -172,6 +172,7 @@ def serve(
         model_path,
         model_xml=model_xml,
         model_source=f"{Path(model_path)} + {scenario.xml_path}",
+        vfs_files=scenario.vfs_files,
     )
     max_thrust_per_motor = quad.mass * GRAVITY_MPS2 * thrust_to_weight / 4.0
     thrust_mapper = PwmThrustMapper(

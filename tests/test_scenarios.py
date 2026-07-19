@@ -160,11 +160,28 @@ def test_mountain_map_uses_canonical_xml_lookup_and_strict_config() -> None:
 
     assert scenario.xml_path.name == "mountain_map.xml"
     assert scenario.xml_string == scenario.xml_path.read_text(encoding="utf-8")
-    assert scenario.vfs_files == {}
+    assert set(scenario.vfs_files) == {"mountain_map/heightfield.bin"}
+    assert scenario.vfs_files["mountain_map/heightfield.bin"]
     assert scenario.config is not None
     assert scenario.config.name == "mountain_map"
     assert scenario.config.terrain.resolution == 129
     assert scenario.config.replaces_ground_plane is True
+
+
+def test_mountain_map_patches_hfield_and_removes_flat_ground() -> None:
+    model_xml = build_scenario_model_xml(
+        BASE_MODEL_PATH,
+        scenario_from_name("mountain_map"),
+    )
+    root = ET.fromstring(model_xml)
+    hfield = root.find("./asset/hfield[@name='mountain_hfield']")
+    assert hfield is not None
+    assert hfield.attrib["size"] == "150 150 45 3"
+    geom_names = {
+        geom.attrib.get("name") for geom in root.findall("./worldbody/geom")
+    }
+    assert "mountain_terrain" in geom_names
+    assert "visual_ground" not in geom_names
 
 
 def test_heading_quaternion_contract() -> None:

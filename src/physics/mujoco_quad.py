@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 import mujoco
 import numpy as np
@@ -37,13 +37,17 @@ class MuJoCoQuad:
         model_path: str | Path = DEFAULT_MODEL_PATH,
         model_xml: str | None = None,
         model_source: str | None = None,
+        vfs_files: Mapping[str, bytes] | None = None,
     ) -> None:
         self.model_path = Path(model_path)
         self.model_source = model_source or str(self.model_path)
         if model_xml is None:
             self.model = mujoco.MjModel.from_xml_path(str(self.model_path))
         else:
-            self.model = mujoco.MjModel.from_xml_string(model_xml)
+            vfs = mujoco.MjVfs()
+            for filename, contents in (vfs_files or {}).items():
+                vfs[filename] = contents
+            self.model = mujoco.MjModel.from_xml_string(model_xml, vfs=vfs)
         self.data = mujoco.MjData(self.model)
 
         self.body_id = mujoco.mj_name2id(

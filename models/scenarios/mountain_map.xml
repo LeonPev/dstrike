@@ -1,3 +1,11 @@
 <mujoco model="mountain_map">
-  <worldbody/>
+  <asset>
+    <!-- size is patched from scenario.yaml by the canonical scenario loader. -->
+    <hfield name="mountain_hfield" file="mountain_map/heightfield.bin" size="1 1 1 1"/>
+  </asset>
+  <worldbody>
+    <geom name="mountain_terrain" type="hfield" hfield="mountain_hfield"
+          pos="0 0 0" contype="1" conaffinity="1"
+          friction="1.0 0.005 0.0001" rgba="0.22 0.38 0.16 1"/>
+  </worldbody>
 </mujoco>

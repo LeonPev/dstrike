@@ -71,12 +71,20 @@ def scenario_from_name(name: str | None) -> ScenarioConfig:
         else None
     )
     xml_string = xml_path.read_text(encoding="utf-8")
+    vfs_files: dict[str, bytes] = {}
+    if config is not None:
+        asset_path = SCENARIOS_DIR / normalized_name / "heightfield.bin"
+        if not asset_path.is_file():
+            raise FileNotFoundError(
+                "mountain_map assets missing; run `make generate-map`"
+            )
+        vfs_files["mountain_map/heightfield.bin"] = asset_path.read_bytes()
     return ScenarioConfig(
         name=normalized_name,
         xml_path=xml_path,
         marker_specs=scenario_marker_specs_from_xml(xml_path),
         xml_string=xml_string,
-        vfs_files={},
+        vfs_files=vfs_files,
         config=config,
     )
 
@@ -104,9 +112,42 @@ def build_scenario_model_xml(
     base_root = ET.parse(base_path).getroot()
     scenario_root = ET.fromstring(scenario.xml_string)
 
+    if scenario.config is not None:
+        _prepare_mountain_map_xml(base_root, scenario_root, scenario.config)
+
     _merge_section_children(base_root, scenario_root, "asset")
     _merge_section_children(base_root, scenario_root, "worldbody")
     return ET.tostring(base_root, encoding="unicode")
+
+
+def _prepare_mountain_map_xml(
+    base_root: ET.Element,
+    scenario_root: ET.Element,
+    config: MountainMapConfig,
+) -> None:
+    """Patch config-owned hfield dimensions and remove the flat base plane."""
+    hfield = scenario_root.find("./asset/hfield[@name='mountain_hfield']")
+    if hfield is None:
+        raise ValueError("mountain_map XML must define mountain_hfield")
+    terrain = config.terrain
+    hfield.set(
+        "size",
+        " ".join(
+            f"{value:g}"
+            for value in (
+                terrain.size_m / 2.0,
+                terrain.size_m / 2.0,
+                terrain.max_height_m,
+                terrain.base_depth_m,
+            )
+        ),
+    )
+
+    worldbody = base_root.find("worldbody")
+    if worldbody is not None:
+        for geom in list(worldbody.findall("geom")):
+            if geom.attrib.get("name") == "visual_ground":
+                worldbody.remove(geom)
 
 
 def scenario_marker_specs_from_xml(
