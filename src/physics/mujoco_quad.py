@@ -9,6 +9,8 @@ from typing import Iterable, Mapping
 import mujoco
 import numpy as np
 
+from src.physics.motor_model import ARDUPILOT_QUAD_X_ROTORS, DEFAULT_YAW_MOMENT_ARM_M
+
 
 DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "quad.xml"
 ROTOR_SITE_NAMES = (
@@ -17,7 +19,9 @@ ROTOR_SITE_NAMES = (
     "rotor_rear_left",
     "rotor_rear_right",
 )
+MOTOR_SITE_NAMES = tuple(rotor.site_suffix for rotor in ARDUPILOT_QUAD_X_ROTORS)
 CHASER_ROTOR_SITE_NAMES = tuple(f"chaser_{name}" for name in ROTOR_SITE_NAMES)
+CHASER_MOTOR_SITE_NAMES = tuple(f"chaser_{name}" for name in MOTOR_SITE_NAMES)
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,12 @@ class MuJoCoQuad:
         self.rotor_site_ids = tuple(
             self._required_site_id(site_name) for site_name in rotor_names
         )
+        motor_site_names = (
+            CHASER_MOTOR_SITE_NAMES if body_name == "chaser" else MOTOR_SITE_NAMES
+        )
+        self.motor_site_ids = tuple(
+            self._required_site_id(site_name) for site_name in motor_site_names
+        )
         self.reset()
 
     @property
@@ -102,18 +112,25 @@ class MuJoCoQuad:
             mujoco.mj_forward(self.model, self.data)
             body_rotation = self.data.xmat[self.body_id].reshape(3, 3)
             thrust_axis_world = body_rotation @ np.array([0.0, 0.0, 1.0])
-            # Keep the first smoke-test model attitude-stable; detailed rotor
-            # torques can be introduced once the end-to-end stack is reliable.
-            force_world = thrust_axis_world * float(np.sum(thrusts))
-            mujoco.mj_applyFT(
-                self.model,
-                self.data,
-                force_world,
-                np.zeros(3),
-                self.data.xipos[self.body_id],
-                self.body_id,
-                self.data.qfrc_applied,
-            )
+            for rotor, site_id, thrust in zip(
+                ARDUPILOT_QUAD_X_ROTORS, self.motor_site_ids, thrusts
+            ):
+                force_world = thrust_axis_world * float(thrust)
+                reaction_torque_world = (
+                    thrust_axis_world
+                    * rotor.yaw_torque_sign
+                    * float(thrust)
+                    * DEFAULT_YAW_MOMENT_ARM_M
+                )
+                mujoco.mj_applyFT(
+                    self.model,
+                    self.data,
+                    force_world,
+                    reaction_torque_world,
+                    self.data.site_xpos[site_id],
+                    self.body_id,
+                    self.data.qfrc_applied,
+                )
 
             mujoco.mj_step(self.model, self.data)
 
