@@ -171,6 +171,17 @@ def test_mountain_map_uses_canonical_xml_lookup_and_strict_config() -> None:
     assert scenario_marker_specs_from_xml(scenario.xml_path) == scenario.marker_specs
 
 
+def test_two_drone_scenario_uses_canonical_entry_and_mountain_assets() -> None:
+    scenario = scenario_from_name("mountain-two-drones")
+
+    assert scenario.xml_path.name == "mountain_two_drones.xml"
+    assert scenario.config is not None
+    assert scenario.config.name == "mountain_map"
+    assert scenario.two_drone_config is not None
+    assert scenario.two_drone_config.name == "mountain_two_drones"
+    assert set(scenario.vfs_files) == {"mountain_map/heightfield.bin"}
+
+
 def test_mountain_map_patches_hfield_and_removes_flat_ground() -> None:
     scenario = scenario_from_name("mountain_map")
     model_xml = build_scenario_model_xml(

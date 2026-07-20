@@ -9,8 +9,14 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 from typing import Mapping
 
-from src.physics.scenario_config import MountainMapConfig, load_mountain_map_config
+from src.physics.scenario_config import (
+    MountainMapConfig,
+    TwoDroneScenarioConfig,
+    load_mountain_map_config,
+    load_two_drone_config,
+)
 from src.physics.terrain_map import TerrainMap
+from src.physics.two_drone_world import compose_two_drone_world
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +46,7 @@ class ScenarioConfig:
     xml_string: str
     vfs_files: Mapping[str, bytes]
     config: MountainMapConfig | None
+    two_drone_config: TwoDroneScenarioConfig | None = None
 
 
 def scenario_from_env() -> ScenarioConfig:
@@ -67,17 +74,26 @@ def scenario_from_name(name: str | None) -> ScenarioConfig:
             f"unknown scenario {name!r}; expected one of: {allowed}"
         )
 
-    config_path = SCENARIOS_DIR / normalized_name / "scenario.yaml"
+    is_two_drone = normalized_name == "mountain_two_drones"
+    map_name = "mountain_map" if is_two_drone else normalized_name
+    config_path = SCENARIOS_DIR / map_name / "scenario.yaml"
     config = (
         load_mountain_map_config(config_path)
-        if normalized_name == "mountain_map"
+        if map_name == "mountain_map"
+        else None
+    )
+    two_drone_config = (
+        load_two_drone_config(
+            PROJECT_ROOT / "config/scenarios/mountain_two_drones.yaml"
+        )
+        if is_two_drone
         else None
     )
     xml_string = xml_path.read_text(encoding="utf-8")
     vfs_files: dict[str, bytes] = {}
     if config is not None:
-        asset_path = SCENARIOS_DIR / normalized_name / "heightfield.bin"
-        height_map_path = SCENARIOS_DIR / normalized_name / "heightfield_m.npy"
+        asset_path = SCENARIOS_DIR / map_name / "heightfield.bin"
+        height_map_path = SCENARIOS_DIR / map_name / "heightfield_m.npy"
         if not asset_path.is_file() or not height_map_path.is_file():
             raise FileNotFoundError(
                 "mountain_map assets missing; run `make generate-map`"
@@ -94,6 +110,7 @@ def scenario_from_name(name: str | None) -> ScenarioConfig:
         xml_string=xml_string,
         vfs_files=vfs_files,
         config=config,
+        two_drone_config=two_drone_config,
     )
 
 
@@ -122,6 +139,19 @@ def build_scenario_model_xml(
 
     if scenario.config is not None:
         _prepare_mountain_map_xml(base_root, scenario_root, scenario)
+    if scenario.two_drone_config is not None:
+        if scenario.config is None:
+            raise ValueError("two-drone scenario requires mountain map config")
+        terrain = TerrainMap.from_config(
+            scenario.config,
+            SCENARIOS_DIR / "mountain_map",
+        )
+        compose_two_drone_world(
+            base_root,
+            scenario_root,
+            scenario.two_drone_config,
+            terrain,
+        )
 
     _merge_section_children(base_root, scenario_root, "asset")
     _merge_section_children(base_root, scenario_root, "visual")
@@ -141,7 +171,7 @@ def _prepare_mountain_map_xml(
     _patch_mountain_scenario_root(
         scenario_root,
         config,
-        scenario.xml_path.parent / scenario.name,
+        SCENARIOS_DIR / "mountain_map",
     )
 
     worldbody = base_root.find("worldbody")

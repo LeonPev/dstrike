@@ -24,6 +24,7 @@ from src.physics.frame_conventions import ardupilot_state_from_quad_state
 from src.physics.mujoco_quad import DEFAULT_MODEL_PATH, MuJoCoQuad
 from src.physics.ros_camera import CameraConfig, SimCameraPublisher
 from src.physics.ros_visualization import SimVisualizationPublisher
+from src.physics.scenario_config import heading_quaternion_wxyz
 from src.physics.scenarios import (
     DEFAULT_SCENARIO_NAME,
     ScenarioConfig,
@@ -149,7 +150,26 @@ def scenario_spawn_pose(scenario: ScenarioConfig) -> SpawnPose:
             0.0,
             0.0,
         )
-    terrain = TerrainMap.from_config(scenario.config, scenario.xml_path.parent / scenario.name)
+    asset_dir = (
+        scenario.xml_path.parent / "mountain_map"
+        if scenario.two_drone_config is not None
+        else scenario.xml_path.parent / scenario.name
+    )
+    terrain = TerrainMap.from_config(scenario.config, asset_dir)
+    if scenario.two_drone_config is not None:
+        chaser = scenario.two_drone_config.chaser_drone
+        terrain_height_m = terrain.height_at(*chaser.start_xy_m)
+        return SpawnPose(
+            position_xyz=(
+                chaser.start_xy_m[0],
+                chaser.start_xy_m[1],
+                terrain_height_m + chaser.initial_agl_m,
+            ),
+            quaternion_wxyz=heading_quaternion_wxyz(chaser.heading_deg),
+            terrain_height_m=terrain_height_m,
+            launch_surface_height_m=terrain_height_m,
+            heading_deg=chaser.normalized_heading_deg,
+        )
     return terrain.safe_spawn_pose(
         scenario.config,
         launch_surface_height_m=mountain_launch_pad_top_z(scenario),

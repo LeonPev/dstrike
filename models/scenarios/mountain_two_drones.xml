@@ -1,0 +1,26 @@
+<mujoco model="mountain_two_drones">
+  <visual>
+    <map znear="0.0001"/>
+  </visual>
+  <asset>
+    <hfield name="mountain_hfield" file="mountain_map/heightfield.bin" size="1 1 1 1"/>
+    <material name="scenario_landing_pad_mat" rgba="0.95 0.65 0.08 1"/>
+    <texture name="mountain_sky" type="skybox" builtin="gradient"
+             rgb1="0.32 0.55 0.82" rgb2="0.04 0.10 0.20"
+             width="512" height="3072"/>
+  </asset>
+  <worldbody>
+    <light name="mountain_sun" directional="true" pos="0 0 200"
+           dir="-0.3 -0.2 -1" ambient="0.45 0.45 0.45"
+           diffuse="0.8 0.8 0.75" specular="0.1 0.1 0.1"
+           castshadow="false"/>
+    <geom name="mountain_terrain" type="hfield" hfield="mountain_hfield"
+          pos="0 0 0" group="2" contype="1" conaffinity="1"
+          friction="1.0 0.005 0.0001" rgba="0.22 0.38 0.16 1"/>
+    <geom name="scenario_landing_pad" type="cylinder" pos="0 0 0"
+          size="1.5 0.05" group="1" material="scenario_landing_pad_mat"
+          contype="1" conaffinity="1" friction="1.0 0.005 0.0001"/>
+    <!-- The loader patches this kinematic body from the validated SCN config. -->
+    <body name="target" mocap="true" pos="0 0 1" quat="1 0 0 0"/>
+  </worldbody>
+</mujoco>

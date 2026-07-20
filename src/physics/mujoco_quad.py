@@ -17,6 +17,7 @@ ROTOR_SITE_NAMES = (
     "rotor_rear_left",
     "rotor_rear_right",
 )
+CHASER_ROTOR_SITE_NAMES = tuple(f"chaser_{name}" for name in ROTOR_SITE_NAMES)
 
 
 @dataclass(frozen=True)
@@ -50,14 +51,18 @@ class MuJoCoQuad:
             self.model = mujoco.MjModel.from_xml_string(model_xml, vfs=vfs)
         self.data = mujoco.MjData(self.model)
 
+        body_name = "chaser" if _body_exists(self.model, "chaser") else "base_link"
         self.body_id = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_BODY, "base_link"
+            self.model, mujoco.mjtObj.mjOBJ_BODY, body_name
         )
         if self.body_id < 0:
-            raise ValueError("MuJoCo model must contain body named base_link")
+            raise ValueError("MuJoCo model must contain body named base_link or chaser")
 
+        rotor_names = (
+            CHASER_ROTOR_SITE_NAMES if body_name == "chaser" else ROTOR_SITE_NAMES
+        )
         self.rotor_site_ids = tuple(
-            self._required_site_id(site_name) for site_name in ROTOR_SITE_NAMES
+            self._required_site_id(site_name) for site_name in rotor_names
         )
         self.reset()
 
@@ -142,3 +147,7 @@ def _normalised_quaternion(values: Iterable[float]) -> np.ndarray:
     if norm <= 0.0:
         raise ValueError("quaternion must have non-zero length")
     return quaternion / norm
+
+
+def _body_exists(model: mujoco.MjModel, name: str) -> bool:
+    return mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name) >= 0
