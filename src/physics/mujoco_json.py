@@ -35,6 +35,7 @@ from src.physics.scenarios import (
     scenario_from_name,
 )
 from src.physics.terrain_map import SpawnPose, TerrainMap
+from src.physics.target_motion import TargetMotion
 
 
 GRAVITY_MPS2 = 9.80665
@@ -228,6 +229,17 @@ def serve(
     )
     spawn_pose = scenario_spawn_pose(scenario)
     quad.reset(spawn_pose.position_xyz, spawn_pose.quaternion_wxyz)
+    target_motion = None
+    if scenario.two_drone_config is not None:
+        if scenario.config is None:
+            raise ValueError("two-drone scenario requires mountain map config")
+        target_terrain = TerrainMap.from_config(
+            scenario.config, scenario.xml_path.parent / "mountain_map"
+        )
+        target_motion = TargetMotion(
+            scenario.two_drone_config.target_drone, target_terrain
+        )
+        target_motion.apply(quad.model, quad.data, 0.0)
     reset_after_frames = reset_after_frames_from_env()
     max_thrust_per_motor = quad.mass * GRAVITY_MPS2 * thrust_to_weight / 4.0
     thrust_mapper = PwmThrustMapper(
@@ -304,6 +316,8 @@ def serve(
                     if step.substeps
                     else quad.state()
                 )
+                if target_motion is not None:
+                    target_motion.apply(quad.model, quad.data, state.time)
                 ros_visualization.maybe_publish(state)
                 if camera_publisher is not None:
                     camera_publisher.maybe_publish()
