@@ -1,4 +1,6 @@
-Goal: run the full drone simulation stack with Docker Desktop for Mac only. No host installs are allowed except Docker Desktop, its Docker Engine, and the Docker Compose plugin. Keep the first version headless and browser-viewable.
+Goal: run the full drone simulation stack using Docker Desktop for Mac only. No host installs are allowed except Docker Desktop, Docker Engine, and the Docker Compose plugin. Keep the first version headless and browser-viewable.
+
+Design simulation-facing control, telemetry, and mission logic so it can later be reused with a real drone through a clearly isolated hardware adapter. Do not add real-hardware execution or testing unless explicitly requested. Never send commands to real hardware without explicit user confirmation and documented safety checks.
 
 follow plan in plans/two_drone_mountain_scenario_plan.md.
 
