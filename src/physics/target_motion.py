@@ -22,6 +22,18 @@ class TargetMotionState:
     distance_along_route_m: float
     direction: int
 
+    @property
+    def position(self) -> tuple[float, float, float]:
+        return self.position_xyz
+
+    @property
+    def velocity(self) -> tuple[float, float, float]:
+        return self.velocity_xyz
+
+    @property
+    def quaternion(self) -> tuple[float, float, float, float]:
+        return self.quaternion_wxyz
+
 
 class TargetMotion:
     """Evaluate and apply the configured ping-pong route at any timestamp."""

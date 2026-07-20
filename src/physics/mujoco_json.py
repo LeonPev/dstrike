@@ -230,6 +230,7 @@ def serve(
     spawn_pose = scenario_spawn_pose(scenario)
     quad.reset(spawn_pose.position_xyz, spawn_pose.quaternion_wxyz)
     target_motion = None
+    target_state = None
     if scenario.two_drone_config is not None:
         if scenario.config is None:
             raise ValueError("two-drone scenario requires mountain map config")
@@ -239,7 +240,7 @@ def serve(
         target_motion = TargetMotion(
             scenario.two_drone_config.target_drone, target_terrain
         )
-        target_motion.apply(quad.model, quad.data, 0.0)
+        target_state = target_motion.apply(quad.model, quad.data, 0.0)
     reset_after_frames = reset_after_frames_from_env()
     max_thrust_per_motor = quad.mass * GRAVITY_MPS2 * thrust_to_weight / 4.0
     thrust_mapper = PwmThrustMapper(
@@ -251,12 +252,13 @@ def serve(
     ros_visualization = SimVisualizationPublisher(
         quad,
         scenario_markers=marker_specs_from_model_xml(model_xml),
+        publish_target=target_motion is not None,
     )
     camera_config = CameraConfig.from_env()
     camera_publisher = (
         SimCameraPublisher(quad, camera_config) if camera_config.enabled else None
     )
-    ros_visualization.publish(quad.state())
+    ros_visualization.publish(quad.state(), target_state=target_state)
     if camera_publisher is not None:
         camera_publisher.publish()
     last_log_at: float | None = None
@@ -301,7 +303,11 @@ def serve(
                 if step.reset or deterministic_reset:
                     quad.reset(spawn_pose.position_xyz, spawn_pose.quaternion_wxyz)
                     # Bypass rate limiting: this is the required pre-step reset sample.
-                    ros_visualization.publish(quad.state())
+                    if target_motion is not None:
+                        target_state = target_motion.apply(quad.model, quad.data, 0.0)
+                    ros_visualization.publish(
+                        quad.state(), target_state=target_state
+                    )
                     print(
                         "mujoco_json reset "
                         f"frame_count={packet.frame_count} "
@@ -317,8 +323,8 @@ def serve(
                     else quad.state()
                 )
                 if target_motion is not None:
-                    target_motion.apply(quad.model, quad.data, state.time)
-                ros_visualization.maybe_publish(state)
+                    target_state = target_motion.apply(quad.model, quad.data, state.time)
+                ros_visualization.maybe_publish(state, target_state=target_state)
                 if camera_publisher is not None:
                     camera_publisher.maybe_publish()
                 state_payload, state_json = build_state_json(state)

@@ -5,6 +5,7 @@ import math
 import numpy as np
 
 from src.physics.scenario_config import TargetDroneConfig
+from src.physics.ros_visualization import ground_truth_odom_fields
 from src.physics.target_motion import TargetMotion
 from src.physics.terrain_map import TerrainMap
 
@@ -77,3 +78,13 @@ def test_rejects_invalid_timestamps() -> None:
             pass
         else:
             raise AssertionError(f"accepted invalid timestamp {value}")
+
+
+def test_motion_state_is_directly_publishable_as_ros_odometry() -> None:
+    state = motion().state_at(10.0)
+
+    fields = ground_truth_odom_fields(state)
+
+    assert fields.position_enu == state.position_xyz
+    assert fields.linear_velocity_enu == state.velocity_xyz
+    assert fields.orientation_xyzw[3] > 0.0

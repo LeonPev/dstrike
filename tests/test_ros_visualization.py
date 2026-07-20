@@ -7,6 +7,7 @@ import numpy as np
 
 from src.physics.ros_visualization import (
     BASE_LINK_FRAME,
+    TARGET_BASE_LINK_FRAME,
     FrameTransform,
     drone_marker_specs,
     ground_truth_odom_fields,
@@ -36,6 +37,21 @@ def test_ground_truth_odom_fields_stay_in_ros_enu_z_up() -> None:
     assert fields.position_enu == (1.0, 2.0, 3.0)
     assert fields.orientation_xyzw == (0.0, 0.0, 0.0, 1.0)
     assert fields.linear_velocity_enu == (4.0, 5.0, 6.0)
+
+
+def test_target_motion_state_uses_target_frame_and_ros_field_conventions() -> None:
+    state = FakeQuadState(
+        position=np.array((-90.0, 0.0, 42.0)),
+        quaternion=np.array((math.sqrt(0.5), 0.0, 0.0, math.sqrt(0.5))),
+        velocity=np.array((0.0, 1.8, 0.0)),
+    )
+
+    fields = ground_truth_odom_fields(state)
+
+    assert TARGET_BASE_LINK_FRAME == "target/base_link"
+    assert fields.position_enu == (-90.0, 0.0, 42.0)
+    assert fields.orientation_xyzw == (0.0, 0.0, math.sqrt(0.5), math.sqrt(0.5))
+    assert fields.linear_velocity_enu == (0.0, 1.8, 0.0)
 
 
 def test_quaternion_wxyz_to_xyzw_normalises_and_canonicalises_sign() -> None:

@@ -23,7 +23,9 @@ from src.physics.scenarios import (
 WORLD_FRAME = "world"
 ODOM_FRAME = "odom"
 BASE_LINK_FRAME = "base_link"
+TARGET_BASE_LINK_FRAME = "target/base_link"
 GROUND_TRUTH_ODOM_TOPIC = "/sim/ground_truth/odom"
+TARGET_ODOM_TOPIC = "/sim/target/odom"
 TF_TOPIC = "/tf"
 SCENARIO_MARKERS_TOPIC = "/sim/scenario_markers"
 DRONE_MARKERS_TOPIC = "/sim/drone_markers"
@@ -227,6 +229,7 @@ class SimVisualizationPublisher:
         quad: Any,
         publish_rate_hz: float = DEFAULT_PUBLISH_RATE_HZ,
         scenario_markers: Iterable[ScenarioMarkerSpec] | None = None,
+        publish_target: bool = False,
     ) -> None:
         if publish_rate_hz <= 0.0:
             raise ValueError("publish_rate_hz must be positive")
@@ -250,6 +253,11 @@ class SimVisualizationPublisher:
             Odometry,
             GROUND_TRUTH_ODOM_TOPIC,
             10,
+        )
+        self._target_odom_pub = (
+            self._node.create_publisher(Odometry, TARGET_ODOM_TOPIC, 10)
+            if publish_target
+            else None
         )
         self._tf_pub = self._node.create_publisher(TFMessage, TF_TOPIC, 10)
         marker_qos = QoSProfile(
@@ -299,7 +307,9 @@ class SimVisualizationPublisher:
         self._map_assets = self._load_map_assets()
         self._node.get_logger().info(
             "publishing simulation visualization topics "
-            f"{GROUND_TRUTH_ODOM_TOPIC}, {TF_TOPIC}, {SCENARIO_MARKERS_TOPIC}, "
+            f"{GROUND_TRUTH_ODOM_TOPIC}"
+            f"{', ' + TARGET_ODOM_TOPIC if publish_target else ''}, "
+            f"{TF_TOPIC}, {SCENARIO_MARKERS_TOPIC}, "
             f"{DRONE_MARKERS_TOPIC}, {TERRAIN_MARKERS_TOPIC}, {NATURE_MARKERS_TOPIC}"
         )
 
@@ -308,7 +318,12 @@ class SimVisualizationPublisher:
         if self._owns_rclpy and self._rclpy.ok():
             self._rclpy.shutdown()
 
-    def maybe_publish(self, state: Any, now_monotonic_s: float | None = None) -> bool:
+    def maybe_publish(
+        self,
+        state: Any,
+        now_monotonic_s: float | None = None,
+        target_state: Any | None = None,
+    ) -> bool:
         now_monotonic_s = (
             time.monotonic() if now_monotonic_s is None else now_monotonic_s
         )
@@ -319,16 +334,31 @@ class SimVisualizationPublisher:
         ):
             return False
 
-        self.publish(state)
+        self.publish(state, target_state=target_state)
         self._last_publish_monotonic_s = now_monotonic_s
         return True
 
-    def publish(self, state: Any) -> None:
+    def publish(self, state: Any, target_state: Any | None = None) -> None:
         stamp = self._node.get_clock().now().to_msg()
         fields = ground_truth_odom_fields(state)
+        target_fields = (
+            ground_truth_odom_fields(target_state)
+            if target_state is not None
+            else None
+        )
 
         self._odom_pub.publish(self._build_odometry(stamp, fields))
-        self._tf_pub.publish(self._build_tf_message(stamp, fields))
+        if self._target_odom_pub is not None:
+            if target_fields is None:
+                raise ValueError("target state is required when target publishing is enabled")
+            self._target_odom_pub.publish(
+                self._build_odometry(
+                    stamp,
+                    target_fields,
+                    child_frame_id=TARGET_BASE_LINK_FRAME,
+                )
+            )
+        self._tf_pub.publish(self._build_tf_message(stamp, fields, target_fields))
         self._marker_pub.publish(self._build_scenario_markers(stamp))
         self._drone_marker_pub.publish(self._build_drone_markers(stamp))
         if not self._static_markers_published and self._map_assets is not None:
@@ -405,11 +435,16 @@ class SimVisualizationPublisher:
         result.markers = markers
         return result
 
-    def _build_odometry(self, stamp: Any, fields: GroundTruthOdomFields) -> Any:
+    def _build_odometry(
+        self,
+        stamp: Any,
+        fields: GroundTruthOdomFields,
+        child_frame_id: str = BASE_LINK_FRAME,
+    ) -> Any:
         odom = self._odometry_type()
         odom.header.stamp = stamp
         odom.header.frame_id = WORLD_FRAME
-        odom.child_frame_id = BASE_LINK_FRAME
+        odom.child_frame_id = child_frame_id
         odom.pose.pose.position.x = fields.position_enu[0]
         odom.pose.pose.position.y = fields.position_enu[1]
         odom.pose.pose.position.z = fields.position_enu[2]
@@ -422,7 +457,12 @@ class SimVisualizationPublisher:
         odom.twist.twist.linear.z = fields.linear_velocity_enu[2]
         return odom
 
-    def _build_tf_message(self, stamp: Any, fields: GroundTruthOdomFields) -> Any:
+    def _build_tf_message(
+        self,
+        stamp: Any,
+        fields: GroundTruthOdomFields,
+        target_fields: GroundTruthOdomFields | None = None,
+    ) -> Any:
         transforms = [
             self._build_transform(
                 stamp=stamp,
@@ -439,6 +479,16 @@ class SimVisualizationPublisher:
                 rotation_xyzw=fields.orientation_xyzw,
             )
         ]
+        if target_fields is not None:
+            transforms.append(
+                self._build_transform(
+                    stamp=stamp,
+                    parent_frame_id=WORLD_FRAME,
+                    child_frame_id=TARGET_BASE_LINK_FRAME,
+                    translation_xyz=target_fields.position_enu,
+                    rotation_xyzw=target_fields.orientation_xyzw,
+                )
+            )
         for site_transform in self._site_transforms:
             transforms.append(
                 self._build_transform(
