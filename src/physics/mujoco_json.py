@@ -231,6 +231,7 @@ def serve(
     quad.reset(spawn_pose.position_xyz, spawn_pose.quaternion_wxyz)
     target_motion = None
     target_state = None
+    target_terrain = None
     if scenario.two_drone_config is not None:
         if scenario.config is None:
             raise ValueError("two-drone scenario requires mountain map config")
@@ -251,8 +252,15 @@ def serve(
     clock = FixedStepClock(fixed_dt=quad.timestep, max_frame_dt=max_frame_dt)
     ros_visualization = SimVisualizationPublisher(
         quad,
+        publish_rate_hz=(
+            scenario.two_drone_config.visualization.marker_rate_hz
+            if scenario.two_drone_config is not None
+            else 10.0
+        ),
         scenario_markers=marker_specs_from_model_xml(model_xml),
         publish_target=target_motion is not None,
+        two_drone_config=scenario.two_drone_config,
+        terrain=target_terrain,
     )
     camera_config = CameraConfig.from_env()
     camera_publisher = (

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 import sys
 import time
+from types import SimpleNamespace
 
 
 sys.path.insert(
@@ -14,10 +16,118 @@ from drone_bridge.mavlink_bridge import (  # noqa: E402
     ARDUPILOT_FORCE_ARM_MAGIC,
     ARDUPILOT_FORCE_DISARM_MAGIC,
     MavlinkWorker,
+    SimStateOrigin,
     VELOCITY_COMMAND_TIMEOUT_S,
     VELOCITY_ZERO_HOLD_AFTER_TIMEOUT_S,
     VelocityCommand,
+    apply_odom_position_offset,
+    odom_alignment_offset,
+    sim_state_to_local_position_ned,
 )
+from drone_bridge.frame_conventions import (  # noqa: E402
+    EARTH_RADIUS_M,
+    GlobalPositionOrigin,
+    RosOdomFields,
+)
+
+
+def test_sim_state_converts_sitl_truth_to_origin_relative_ned() -> None:
+    origin = SimStateOrigin(
+        origin=GlobalPositionOrigin(lat_deg=-35.0, lon_deg=149.0),
+        altitude_m=584.0,
+    )
+    latitude = origin.origin.lat_deg + math.degrees(10.0 / EARTH_RADIUS_M)
+    longitude = origin.origin.lon_deg + math.degrees(
+        20.0 / (EARTH_RADIUS_M * math.cos(math.radians(origin.origin.lat_deg)))
+    )
+    message = SimpleNamespace(
+        lat_int=int(round(latitude * 10_000_000)),
+        lon_int=int(round(longitude * 10_000_000)),
+        alt=587.0,
+        vn=1.25,
+        ve=-2.5,
+        vd=0.75,
+    )
+
+    position = sim_state_to_local_position_ned(message, origin)
+
+    assert math.isclose(position.x, 10.0, abs_tol=0.02)
+    assert math.isclose(position.y, 20.0, abs_tol=0.02)
+    assert position.z == -3.0
+    assert (position.vx, position.vy, position.vz) == (1.25, -2.5, 0.75)
+
+
+def test_sim_state_worker_uses_first_truth_sample_as_fixed_origin() -> None:
+    logger = FakeLogger()
+    worker = MavlinkWorker(
+        endpoint="udpin:0.0.0.0:14550",
+        logger=logger,
+        use_sim_state=True,
+    )
+    first_latitude = -35.0
+    second_latitude = first_latitude + math.degrees(1.0 / EARTH_RADIUS_M)
+
+    def message(latitude: float) -> SimpleNamespace:
+        return SimpleNamespace(
+            get_type=lambda: "SIM_STATE",
+            lat_int=int(round(latitude * 10_000_000)),
+            lon_int=1_490_000_000,
+            alt=584.0,
+            vn=0.0,
+            ve=0.0,
+            vd=0.0,
+            q1=1.0,
+            q2=0.0,
+            q3=0.0,
+            q4=0.0,
+        )
+
+    worker._handle_message(message(first_latitude))
+    first = worker.snapshot()
+    worker._handle_message(message(second_latitude))
+    second = worker.snapshot()
+
+    assert first.local_position is not None
+    assert math.isclose(first.local_position.x, 0.0, abs_tol=0.02)
+    assert second.local_position is not None
+    assert math.isclose(second.local_position.x, 1.0, abs_tol=0.02)
+
+
+def test_configured_odom_offset_aligns_local_pose_to_world() -> None:
+    fields = RosOdomFields(
+        position_enu=(0.25, -0.5, -0.3),
+        linear_velocity_enu=(1.0, 2.0, 3.0),
+        orientation_xyzw=(0.0, 0.0, 0.0, 1.0),
+    )
+
+    aligned = apply_odom_position_offset(fields, (-120.0, -25.0, 16.2))
+
+    assert all(
+        math.isclose(actual, expected, abs_tol=1e-12)
+        for actual, expected in zip(
+            aligned.position_enu,
+            (-119.75, -25.5, 15.9),
+        )
+    )
+    assert aligned.linear_velocity_enu == fields.linear_velocity_enu
+    assert aligned.orientation_xyzw == fields.orientation_xyzw
+
+
+def test_alignment_offset_registers_current_local_pose_to_world_reference() -> None:
+    fields = RosOdomFields(
+        position_enu=(0.25, -0.5, -0.3),
+        linear_velocity_enu=(1.0, 2.0, 3.0),
+        orientation_xyzw=(0.0, 0.0, 0.0, 1.0),
+    )
+    reference = (-119.75, -25.5, 15.9)
+
+    offset = odom_alignment_offset(fields, reference)
+    aligned = apply_odom_position_offset(fields, offset)
+
+    assert all(
+        math.isclose(actual, expected, abs_tol=1e-12)
+        for actual, expected in zip(aligned.position_enu, reference)
+    )
 
 
 class FakeLogger:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 import queue
 import threading
 import time
@@ -19,6 +20,7 @@ from drone_bridge.frame_conventions import (
     GlobalPositionInt,
     GlobalPositionOrigin,
     LocalPositionNed,
+    RosOdomFields,
     attitude_rpy_to_quaternion_wxyz,
     global_position_int_to_local_ned,
     local_position_ned_to_ros_odom_fields,
@@ -35,6 +37,79 @@ ARDUPILOT_FORCE_DISARM_MAGIC = 21196.0
 VELOCITY_COMMAND_REFRESH_INTERVAL_S = 0.2
 VELOCITY_COMMAND_TIMEOUT_S = 0.75
 VELOCITY_ZERO_HOLD_AFTER_TIMEOUT_S = 2.0
+
+
+@dataclass(frozen=True)
+class SimStateOrigin:
+    origin: GlobalPositionOrigin
+    altitude_m: float
+
+
+def sim_state_to_local_position_ned(
+    message: Any,
+    origin: SimStateOrigin,
+) -> LocalPositionNed:
+    """Convert ArduPilot SITL truth telemetry to initial-sample-relative NED."""
+    latitude_e7 = int(message.lat_int)
+    longitude_e7 = int(message.lon_int)
+    altitude_m = float(message.alt)
+    velocities = (float(message.vn), float(message.ve), float(message.vd))
+    if not all(
+        math.isfinite(value)
+        for value in (altitude_m, *velocities)
+    ):
+        raise ValueError("SIM_STATE position and velocity must be finite")
+    local_position, _ = global_position_int_to_local_ned(
+        GlobalPositionInt(
+            lat_e7=latitude_e7,
+            lon_e7=longitude_e7,
+            relative_alt_mm=int(round((altitude_m - origin.altitude_m) * 1000.0)),
+            vx_cm_s=int(round(velocities[0] * 100.0)),
+            vy_cm_s=int(round(velocities[1] * 100.0)),
+            vz_cm_s=int(round(velocities[2] * 100.0)),
+        ),
+        origin.origin,
+    )
+    # Preserve the float velocity fields instead of quantizing through the
+    # GLOBAL_POSITION_INT-compatible position helper above.
+    return LocalPositionNed(
+        x=local_position.x,
+        y=local_position.y,
+        z=local_position.z,
+        vx=velocities[0],
+        vy=velocities[1],
+        vz=velocities[2],
+    )
+
+
+def apply_odom_position_offset(
+    fields: RosOdomFields,
+    offset_enu: tuple[float, float, float],
+) -> RosOdomFields:
+    """Apply a configured local-to-world translation at the adapter boundary."""
+    if not all(math.isfinite(value) for value in offset_enu):
+        raise ValueError("odometry position offset must be finite")
+    return RosOdomFields(
+        position_enu=tuple(
+            fields.position_enu[index] + offset_enu[index]
+            for index in range(3)
+        ),
+        linear_velocity_enu=fields.linear_velocity_enu,
+        orientation_xyzw=fields.orientation_xyzw,
+    )
+
+
+def odom_alignment_offset(
+    fields: RosOdomFields,
+    reference_position_enu: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Return the translation that registers local odometry in a world frame."""
+    if not all(math.isfinite(value) for value in reference_position_enu):
+        raise ValueError("odometry alignment reference must be finite")
+    return tuple(
+        reference_position_enu[index] - fields.position_enu[index]
+        for index in range(3)
+    )
 
 
 @dataclass(frozen=True)
@@ -77,9 +152,16 @@ class MavlinkSnapshot:
 class MavlinkWorker:
     """Owns the blocking pymavlink connection on a background thread."""
 
-    def __init__(self, endpoint: str, logger: Any) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        logger: Any,
+        *,
+        use_sim_state: bool = False,
+    ) -> None:
         self._endpoint = endpoint
         self._logger = logger
+        self._use_sim_state = use_sim_state
         self._commands: queue.Queue[
             ArmCommand
             | ForceDisarmCommand
@@ -109,6 +191,7 @@ class MavlinkWorker:
         self._local_position: LocalPositionNed | None = None
         self._has_local_position_ned = False
         self._global_origin: GlobalPositionOrigin | None = None
+        self._sim_origin: SimStateOrigin | None = None
         self._attitude_quaternion_wxyz: tuple[float, float, float, float] | None = None
         self._error: str | None = None
 
@@ -204,7 +287,37 @@ class MavlinkWorker:
             )
             return
 
+        if message_type == "SIM_STATE" and self._use_sim_state:
+            with self._state_lock:
+                origin = self._sim_origin
+            if origin is None:
+                origin = SimStateOrigin(
+                    origin=GlobalPositionOrigin(
+                        lat_deg=float(message.lat_int) / 10_000_000.0,
+                        lon_deg=float(message.lon_int) / 10_000_000.0,
+                    ),
+                    altitude_m=float(message.alt),
+                )
+            local_position = sim_state_to_local_position_ned(message, origin)
+            attitude = (
+                float(message.q1),
+                float(message.q2),
+                float(message.q3),
+                float(message.q4),
+            )
+            if not all(math.isfinite(value) for value in attitude):
+                raise ValueError("SIM_STATE quaternion must be finite")
+            with self._state_lock:
+                if self._sim_origin is None:
+                    self._sim_origin = origin
+                self._local_position = local_position
+                self._attitude_quaternion_wxyz = attitude
+                self._has_local_position_ned = True
+            return
+
         if message_type == "LOCAL_POSITION_NED":
+            if self._use_sim_state:
+                return
             with self._state_lock:
                 self._local_position = LocalPositionNed(
                     x=float(message.x),
@@ -218,6 +331,8 @@ class MavlinkWorker:
             return
 
         if message_type == "GLOBAL_POSITION_INT":
+            if self._use_sim_state:
+                return
             lat_e7 = int(message.lat)
             lon_e7 = int(message.lon)
             if lat_e7 == 0 and lon_e7 == 0:
@@ -239,6 +354,8 @@ class MavlinkWorker:
             return
 
         if message_type == "ATTITUDE":
+            if self._use_sim_state:
+                return
             with self._state_lock:
                 self._attitude_quaternion_wxyz = attitude_rpy_to_quaternion_wxyz(
                     message.roll,
@@ -248,6 +365,8 @@ class MavlinkWorker:
             return
 
         if message_type == "ATTITUDE_QUATERNION":
+            if self._use_sim_state:
+                return
             with self._state_lock:
                 self._attitude_quaternion_wxyz = (
                     float(message.q1),
@@ -350,6 +469,12 @@ class MavlinkWorker:
             mavlink.MAVLINK_MSG_ID_ATTITUDE_QUATERNION: 10.0,
             mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT: 2.0,
         }
+        if self._use_sim_state:
+            message_rates_hz.update(
+                {
+                    mavlink.MAVLINK_MSG_ID_SIM_STATE: 10.0,
+                }
+            )
         for message_id, rate_hz in message_rates_hz.items():
             self._connection.mav.command_long_send(
                 self._target_system,
@@ -642,13 +767,41 @@ class MavlinkBridgeNode(Node):
     def __init__(self) -> None:
         super().__init__("drone_mavlink_bridge")
         self.declare_parameter("connect", "udpin:0.0.0.0:14550")
+        self.declare_parameter("use_sim_state", False)
+        self.declare_parameter("odom_frame_id", "odom")
+        self.declare_parameter("odom_alignment_topic", "")
         endpoint = (
             self.get_parameter("connect").get_parameter_value().string_value
             or "udpin:0.0.0.0:14550"
         )
+        use_sim_state = (
+            self.get_parameter("use_sim_state").get_parameter_value().bool_value
+        )
+        self._odom_frame_id = (
+            self.get_parameter("odom_frame_id").get_parameter_value().string_value
+            or "odom"
+        )
+        self._odom_alignment_topic = (
+            self.get_parameter("odom_alignment_topic")
+            .get_parameter_value()
+            .string_value
+        )
+        self._odom_alignment_reference_enu: tuple[float, float, float] | None = None
+        self._odom_offset_enu = (0.0, 0.0, 0.0)
+        self._odom_alignment_complete = not bool(self._odom_alignment_topic)
 
         self._heartbeat_pub = self.create_publisher(String, "/drone/heartbeat", 10)
         self._odom_pub = self.create_publisher(Odometry, "/drone/odom", 10)
+        self._odom_alignment_sub = (
+            self.create_subscription(
+                Odometry,
+                self._odom_alignment_topic,
+                self._on_odom_alignment,
+                10,
+            )
+            if self._odom_alignment_topic
+            else None
+        )
         self.create_subscription(Bool, "/drone/arm", self._on_arm, 10)
         self.create_subscription(
             Bool,
@@ -665,7 +818,11 @@ class MavlinkBridgeNode(Node):
         self.create_subscription(Bool, "/drone/land", self._on_land, 10)
         self.create_subscription(Twist, "/drone/cmd_vel", self._on_cmd_vel, 10)
 
-        self._worker = MavlinkWorker(endpoint=endpoint, logger=self.get_logger())
+        self._worker = MavlinkWorker(
+            endpoint=endpoint,
+            logger=self.get_logger(),
+            use_sim_state=use_sim_state,
+        )
         self._worker.start()
         self._last_error: str | None = None
         self.create_timer(0.1, self._publish_snapshot)
@@ -705,6 +862,24 @@ class MavlinkBridgeNode(Node):
             )
         )
 
+    def _on_odom_alignment(self, message: Odometry) -> None:
+        if self._odom_alignment_complete:
+            return
+        if message.header.frame_id != self._odom_frame_id:
+            self.get_logger().warning(
+                "ignoring odometry alignment reference in frame "
+                f"{message.header.frame_id!r}; expected {self._odom_frame_id!r}"
+            )
+            return
+        position = message.pose.pose.position
+        reference = (float(position.x), float(position.y), float(position.z))
+        if not all(math.isfinite(value) for value in reference):
+            self.get_logger().warning(
+                "ignoring non-finite odometry alignment reference"
+            )
+            return
+        self._odom_alignment_reference_enu = reference
+
     def _publish_snapshot(self) -> None:
         snapshot = self._worker.snapshot()
         if snapshot.error and snapshot.error != self._last_error:
@@ -728,10 +903,24 @@ class MavlinkBridgeNode(Node):
             snapshot.local_position,
             snapshot.attitude_quaternion_wxyz,
         )
+        if not self._odom_alignment_complete:
+            if self._odom_alignment_reference_enu is None:
+                return
+            self._odom_offset_enu = odom_alignment_offset(
+                fields,
+                self._odom_alignment_reference_enu,
+            )
+            self._odom_alignment_complete = True
+            self.get_logger().info(
+                "registered MAVLink odometry in frame "
+                f"{self._odom_frame_id!r} with translation "
+                f"{self._odom_offset_enu}"
+            )
+        fields = apply_odom_position_offset(fields, self._odom_offset_enu)
 
         odom = Odometry()
         odom.header.stamp = self.get_clock().now().to_msg()
-        odom.header.frame_id = "odom"
+        odom.header.frame_id = self._odom_frame_id
         odom.child_frame_id = "base_link"
         odom.pose.pose.position.x = fields.position_enu[0]
         odom.pose.pose.position.y = fields.position_enu[1]

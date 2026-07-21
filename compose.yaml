@@ -59,7 +59,17 @@ services:
         source /opt/ros/humble/setup.bash
         colcon build --symlink-install --packages-select drone_bridge
         source /workspace/install/setup.bash
-        exec ros2 run drone_bridge mavlink_bridge --ros-args -p connect:=udpin:0.0.0.0:14550
+        USE_SIM_STATE=false
+        NORMALIZED_SCENARIO="$${SCENARIO//-/_}"
+        ODOM_ARGS=()
+        if [ "$${NORMALIZED_SCENARIO}" = "mountain_two_drones" ]; then
+          USE_SIM_STATE=true
+          ODOM_ARGS+=(
+            -p odom_frame_id:=world
+            -p odom_alignment_topic:=/sim/chaser/ground_truth/odom
+          )
+        fi
+        exec ros2 run drone_bridge mavlink_bridge --ros-args -p connect:=udpin:0.0.0.0:14550 -p use_sim_state:="$${USE_SIM_STATE}" "$${ODOM_ARGS[@]}"
 
   sitl-baseline:
     <<: *sim-common

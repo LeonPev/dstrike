@@ -68,6 +68,21 @@ def test_quaternion_wxyz_to_xyzw_normalises_and_canonicalises_sign() -> None:
     assert yaw_90_xyzw == (0.0, 0.0, math.sqrt(0.5), math.sqrt(0.5))
 
 
+def test_ground_truth_fields_reject_non_finite_pose_values() -> None:
+    state = FakeQuadState(
+        position=np.array((1.0, math.nan, 3.0)),
+        quaternion=np.array((1.0, 0.0, 0.0, 0.0)),
+        velocity=np.array((0.0, 0.0, 0.0)),
+    )
+
+    try:
+        ground_truth_odom_fields(state)
+    except ValueError as exc:
+        assert "finite" in str(exc)
+    else:
+        raise AssertionError("expected non-finite odometry to be rejected")
+
+
 def test_vector3_tuple_rejects_wrong_dimensions() -> None:
     try:
         vector3_tuple((1.0, 2.0))

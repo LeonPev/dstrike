@@ -12,47 +12,64 @@ from typing import Any, Iterable
 
 import numpy as np
 
-from src.physics.scenario_config import load_mountain_map_config
+from src.physics.ros_telemetry import (
+    BASE_LINK_FRAME,
+    CHASER_BASE_LINK_FRAME,
+    CHASER_GROUND_TRUTH_ODOM_TOPIC,
+    GROUND_TRUTH_ODOM_TOPIC,
+    ODOM_FRAME,
+    TARGET_BASE_LINK_FRAME,
+    TARGET_ODOM_TOPIC,
+    TF_TOPIC,
+    WORLD_FRAME,
+    FrameTransform,
+    GroundTruthOdomFields,
+    SimTelemetryPublisher,
+    ground_truth_odom_fields,
+    quaternion_wxyz_to_xyzw,
+    rotor_site_transforms_from_quad,
+    vector3_tuple,
+)
+from src.physics.scenario_config import (
+    TwoDroneScenarioConfig,
+    load_mountain_map_config,
+)
 
 from src.physics.scenarios import (
     ScenarioMarkerSpec,
+    normalize_scenario_name,
     scenario_from_name,
 )
 
 
-WORLD_FRAME = "world"
-ODOM_FRAME = "odom"
-BASE_LINK_FRAME = "base_link"
-TARGET_BASE_LINK_FRAME = "target/base_link"
-GROUND_TRUTH_ODOM_TOPIC = "/sim/ground_truth/odom"
-TARGET_ODOM_TOPIC = "/sim/target/odom"
-TF_TOPIC = "/tf"
 SCENARIO_MARKERS_TOPIC = "/sim/scenario_markers"
 DRONE_MARKERS_TOPIC = "/sim/drone_markers"
 TERRAIN_MARKERS_TOPIC = "/sim/terrain_markers"
 NATURE_MARKERS_TOPIC = "/sim/nature_markers"
 DEFAULT_PUBLISH_RATE_HZ = 10.0
-ROTOR_SITE_NAMES = (
-    "rotor_front_left",
-    "rotor_front_right",
-    "rotor_rear_left",
-    "rotor_rear_right",
+TRANSIENT_LOCAL_DURABILITY = "transient_local"
+MARKER_ARRAY_TYPE = "visualization_msgs/msg/MarkerArray"
+
+
+@dataclass(frozen=True)
+class MarkerTopicContract:
+    topic: str
+    message_type: str
+    durability: str
+
+
+TWO_DRONE_MARKER_CONTRACTS = (
+    MarkerTopicContract(
+        SCENARIO_MARKERS_TOPIC,
+        MARKER_ARRAY_TYPE,
+        TRANSIENT_LOCAL_DURABILITY,
+    ),
+    MarkerTopicContract(
+        DRONE_MARKERS_TOPIC,
+        MARKER_ARRAY_TYPE,
+        TRANSIENT_LOCAL_DURABILITY,
+    ),
 )
-
-
-@dataclass(frozen=True)
-class GroundTruthOdomFields:
-    position_enu: tuple[float, float, float]
-    orientation_xyzw: tuple[float, float, float, float]
-    linear_velocity_enu: tuple[float, float, float]
-
-
-@dataclass(frozen=True)
-class FrameTransform:
-    parent_frame_id: str
-    child_frame_id: str
-    translation_xyz: tuple[float, float, float]
-    rotation_xyzw: tuple[float, float, float, float]
 
 
 @dataclass(frozen=True)
@@ -63,6 +80,8 @@ class DroneMarkerSpec:
     position_xyz: tuple[float, float, float]
     scale_xyz: tuple[float, float, float]
     color_rgba: tuple[float, float, float, float]
+    orientation_xyzw: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
+    points_xyz: tuple[tuple[float, float, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -120,31 +139,6 @@ def terrain_mesh_height_at(mesh: TerrainMesh, x_m: float, y_m: float) -> float:
     return h11 + (1.0 - tx) * (h01 - h11) + (1.0 - ty) * (h10 - h11)
 
 
-def ground_truth_odom_fields(state: Any) -> GroundTruthOdomFields:
-    """Extract ROS ENU/z-up odometry fields from a MuJoCo quad state."""
-    return GroundTruthOdomFields(
-        position_enu=vector3_tuple(state.position),
-        orientation_xyzw=quaternion_wxyz_to_xyzw(state.quaternion),
-        linear_velocity_enu=vector3_tuple(state.velocity),
-    )
-
-
-def rotor_site_transforms_from_quad(quad: Any) -> tuple[FrameTransform, ...]:
-    """Return base_link-relative transforms for the named rotor sites."""
-    transforms: list[FrameTransform] = []
-    for site_name, site_id in zip(ROTOR_SITE_NAMES, quad.rotor_site_ids):
-        site_position = vector3_tuple(quad.model.site_pos[site_id])
-        transforms.append(
-            FrameTransform(
-                parent_frame_id=BASE_LINK_FRAME,
-                child_frame_id=site_name,
-                translation_xyz=site_position,
-                rotation_xyzw=(0.0, 0.0, 0.0, 1.0),
-            )
-        )
-    return tuple(transforms)
-
-
 def drone_marker_specs(
     rotor_positions: Iterable[Iterable[float]],
 ) -> tuple[DroneMarkerSpec, ...]:
@@ -195,30 +189,168 @@ def drone_marker_specs(
     return tuple(specs)
 
 
-def vector3_tuple(values: Iterable[float]) -> tuple[float, float, float]:
-    value_tuple = tuple(float(value) for value in values)
-    if len(value_tuple) != 3:
-        raise ValueError("vector must contain exactly three values")
-    return value_tuple
-
-
-def quaternion_wxyz_to_xyzw(
-    values: Iterable[float],
-) -> tuple[float, float, float, float]:
-    value_tuple = tuple(float(value) for value in values)
-    if len(value_tuple) != 4:
+def rotate_vector_by_quaternion(
+    vector_xyz: Iterable[float],
+    quaternion_xyzw: Iterable[float],
+) -> tuple[float, float, float]:
+    """Rotate a vector by a normalized ROS-order quaternion."""
+    vector = np.asarray(vector3_tuple(vector_xyz), dtype=np.float64)
+    quaternion = np.asarray(tuple(float(value) for value in quaternion_xyzw))
+    if quaternion.shape != (4,):
         raise ValueError("quaternion must contain exactly four values")
-    w, x, y, z = value_tuple
-    norm = math.sqrt(w * w + x * x + y * y + z * z)
-    if norm <= 0.0:
-        raise ValueError("quaternion must have non-zero length")
-    w /= norm
-    x /= norm
-    y /= norm
-    z /= norm
-    if w < 0.0:
-        w, x, y, z = -w, -x, -y, -z
-    return (x, y, z, w)
+    norm = float(np.linalg.norm(quaternion))
+    if not math.isfinite(norm) or norm <= 0.0:
+        raise ValueError("quaternion must have finite, non-zero length")
+    x, y, z, w = quaternion / norm
+    quaternion_vector = np.asarray((x, y, z))
+    rotated = (
+        vector
+        + 2.0 * w * np.cross(quaternion_vector, vector)
+        + 2.0 * np.cross(quaternion_vector, np.cross(quaternion_vector, vector))
+    )
+    return vector3_tuple(rotated)
+
+
+def world_drone_marker_specs(
+    fields: GroundTruthOdomFields,
+    rotor_positions: Iterable[Iterable[float]],
+    *,
+    role: str | None = None,
+) -> tuple[DroneMarkerSpec, ...]:
+    """Place the reusable quad geometry directly in the world frame."""
+    if role not in {None, "target", "chaser"}:
+        raise ValueError("drone marker role must be target, chaser, or None")
+    role_colors = {
+        "target": ((0.05, 0.62, 0.96, 1.0), (0.25, 0.86, 1.0, 0.95)),
+        "chaser": ((1.0, 0.30, 0.05, 1.0), (1.0, 0.72, 0.12, 0.95)),
+    }
+    result: list[DroneMarkerSpec] = []
+    for spec in drone_marker_specs(rotor_positions):
+        offset = rotate_vector_by_quaternion(
+            spec.position_xyz,
+            fields.orientation_xyzw,
+        )
+        namespace = spec.namespace
+        color = spec.color_rgba
+        if role is not None:
+            suffix = spec.namespace.removeprefix("drone_")
+            namespace = f"{role}_{suffix}"
+            body_color, rotor_color = role_colors[role]
+            color = rotor_color if suffix == "rotors" else body_color
+        result.append(
+            DroneMarkerSpec(
+                namespace=namespace,
+                marker_id=spec.marker_id,
+                shape=spec.shape,
+                position_xyz=tuple(
+                    fields.position_enu[index] + offset[index]
+                    for index in range(3)
+                ),
+                scale_xyz=spec.scale_xyz,
+                color_rgba=color,
+                orientation_xyzw=fields.orientation_xyzw,
+            )
+        )
+    return tuple(result)
+
+
+def target_route_marker_points(
+    config: TwoDroneScenarioConfig,
+    terrain: Any,
+    *,
+    spacing_m: float = 2.0,
+) -> tuple[tuple[float, float, float], ...]:
+    """Sample the canonical first route leg at constant terrain clearance."""
+    if spacing_m <= 0.0 or not math.isfinite(spacing_m):
+        raise ValueError("route marker spacing must be positive and finite")
+    start = config.target_drone.start_xy_m
+    end = config.target_route_end_xy_m
+    sample_count = max(
+        2,
+        int(math.ceil(config.target_drone.route_length_m / spacing_m)) + 1,
+    )
+    points: list[tuple[float, float, float]] = []
+    for index in range(sample_count):
+        fraction = index / (sample_count - 1)
+        x_m = start[0] + fraction * (end[0] - start[0])
+        y_m = start[1] + fraction * (end[1] - start[1])
+        point = (
+            x_m,
+            y_m,
+            float(terrain.height_at(x_m, y_m))
+            + config.target_drone.altitude_agl_m,
+        )
+        if not all(math.isfinite(value) for value in point):
+            raise ValueError("target route marker points must be finite")
+        points.append(point)
+    return tuple(points)
+
+
+def desired_formation_position(
+    target_fields: GroundTruthOdomFields,
+    config: TwoDroneScenarioConfig,
+) -> tuple[float, float, float]:
+    """Transform the target-body formation offset into world coordinates."""
+    offset = rotate_vector_by_quaternion(
+        config.chaser_drone.formation_offset_target_body_m,
+        target_fields.orientation_xyzw,
+    )
+    result = tuple(
+        target_fields.position_enu[index] + offset[index]
+        for index in range(3)
+    )
+    if not all(math.isfinite(value) for value in result):
+        raise ValueError("desired formation position must be finite")
+    return result
+
+
+def two_drone_marker_specs(
+    chaser_fields: GroundTruthOdomFields,
+    target_fields: GroundTruthOdomFields,
+    rotor_positions: Iterable[Iterable[float]],
+    config: TwoDroneScenarioConfig,
+    route_points: tuple[tuple[float, float, float], ...],
+) -> tuple[DroneMarkerSpec, ...]:
+    """Return distinguishable world-frame two-drone visualization geometry."""
+    specs = list(
+        world_drone_marker_specs(
+            chaser_fields,
+            rotor_positions,
+            role="chaser",
+        )
+    )
+    specs.extend(
+        world_drone_marker_specs(
+            target_fields,
+            rotor_positions,
+            role="target",
+        )
+    )
+    specs.extend(
+        (
+            DroneMarkerSpec(
+                namespace="target_route",
+                marker_id=0,
+                shape="line_strip",
+                position_xyz=(0.0, 0.0, 0.0),
+                scale_xyz=(0.35, 0.0, 0.0),
+                color_rgba=(0.1, 0.85, 1.0, 0.9),
+                points_xyz=route_points,
+            ),
+            DroneMarkerSpec(
+                namespace="desired_formation_point",
+                marker_id=0,
+                shape="sphere",
+                position_xyz=desired_formation_position(target_fields, config),
+                scale_xyz=(1.2, 1.2, 1.2),
+                color_rgba=(0.2, 1.0, 0.25, 0.95),
+            ),
+        )
+    )
+    identities = [(spec.namespace, spec.marker_id) for spec in specs]
+    if len(identities) != len(set(identities)):
+        raise ValueError("two-drone marker namespace/id pairs must be unique")
+    return tuple(specs)
 
 
 class SimVisualizationPublisher:
@@ -230,14 +362,25 @@ class SimVisualizationPublisher:
         publish_rate_hz: float = DEFAULT_PUBLISH_RATE_HZ,
         scenario_markers: Iterable[ScenarioMarkerSpec] | None = None,
         publish_target: bool = False,
+        two_drone_config: TwoDroneScenarioConfig | None = None,
+        terrain: Any | None = None,
     ) -> None:
         if publish_rate_hz <= 0.0:
             raise ValueError("publish_rate_hz must be positive")
+        if two_drone_config is not None and not publish_target:
+            raise ValueError(
+                "two_drone_config requires target telemetry publishing"
+            )
+        if two_drone_config is not None and terrain is None:
+            raise ValueError("two-drone visualization requires canonical terrain")
 
         import rclpy
-        from nav_msgs.msg import Odometry
-        from rclpy.qos import QoSDurabilityPolicy, QoSProfile
-        from tf2_msgs.msg import TFMessage
+        from rclpy.qos import (
+            QoSDurabilityPolicy,
+            QoSHistoryPolicy,
+            QoSProfile,
+            QoSReliabilityPolicy,
+        )
         from visualization_msgs.msg import MarkerArray
 
         self._rclpy = rclpy
@@ -246,22 +389,16 @@ class SimVisualizationPublisher:
             rclpy.init(args=None)
 
         self._node = rclpy.create_node("sim_visualization_publisher")
-        self._odometry_type = Odometry
-        self._tf_message_type = TFMessage
         self._marker_array_type = MarkerArray
-        self._odom_pub = self._node.create_publisher(
-            Odometry,
-            GROUND_TRUTH_ODOM_TOPIC,
-            10,
+        self._telemetry = SimTelemetryPublisher(
+            self._node,
+            quad,
+            publish_two_drone=publish_target,
         )
-        self._target_odom_pub = (
-            self._node.create_publisher(Odometry, TARGET_ODOM_TOPIC, 10)
-            if publish_target
-            else None
-        )
-        self._tf_pub = self._node.create_publisher(TFMessage, TF_TOPIC, 10)
         marker_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
             depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
         )
         self._marker_pub = self._node.create_publisher(
@@ -281,10 +418,14 @@ class SimVisualizationPublisher:
             MarkerArray, NATURE_MARKERS_TOPIC, marker_qos
         )
         self._site_transforms = rotor_site_transforms_from_quad(quad)
+        self._rotor_positions = tuple(
+            transform.translation_xyz for transform in self._site_transforms
+        )
         drone_specs = list(drone_marker_specs(
-            site_transform.translation_xyz for site_transform in self._site_transforms
+            self._rotor_positions
         ))
-        if os.environ.get("SCENARIO", "landing_pad") == "mountain_map":
+        scenario_name = normalize_scenario_name(os.environ.get("SCENARIO"))
+        if scenario_name == "mountain_map":
             drone_specs.append(
                 DroneMarkerSpec(
                     namespace="drone_locator",
@@ -301,14 +442,25 @@ class SimVisualizationPublisher:
             if scenario_markers is None
             else scenario_markers
         )
+        self._two_drone_config = two_drone_config
+        self._route_marker_points = (
+            target_route_marker_points(two_drone_config, terrain)
+            if two_drone_config is not None
+            else ()
+        )
         self._publish_period_s = 1.0 / publish_rate_hz
         self._last_publish_monotonic_s: float | None = None
         self._static_markers_published = False
         self._map_assets = self._load_map_assets()
+        two_drone_topics = (
+            f", {CHASER_GROUND_TRUTH_ODOM_TOPIC}, {TARGET_ODOM_TOPIC}"
+            if publish_target
+            else ""
+        )
         self._node.get_logger().info(
             "publishing simulation visualization topics "
             f"{GROUND_TRUTH_ODOM_TOPIC}"
-            f"{', ' + TARGET_ODOM_TOPIC if publish_target else ''}, "
+            f"{two_drone_topics}, "
             f"{TF_TOPIC}, {SCENARIO_MARKERS_TOPIC}, "
             f"{DRONE_MARKERS_TOPIC}, {TERRAIN_MARKERS_TOPIC}, {NATURE_MARKERS_TOPIC}"
         )
@@ -340,38 +492,34 @@ class SimVisualizationPublisher:
 
     def publish(self, state: Any, target_state: Any | None = None) -> None:
         stamp = self._node.get_clock().now().to_msg()
-        fields = ground_truth_odom_fields(state)
-        target_fields = (
-            ground_truth_odom_fields(target_state)
-            if target_state is not None
-            else None
+        fields, target_fields = self._telemetry.publish(
+            stamp,
+            state,
+            target_state,
         )
-
-        self._odom_pub.publish(self._build_odometry(stamp, fields))
-        if self._target_odom_pub is not None:
-            if target_fields is None:
-                raise ValueError("target state is required when target publishing is enabled")
-            self._target_odom_pub.publish(
-                self._build_odometry(
-                    stamp,
-                    target_fields,
-                    child_frame_id=TARGET_BASE_LINK_FRAME,
-                )
-            )
-        self._tf_pub.publish(self._build_tf_message(stamp, fields, target_fields))
+        self._drone_marker_pub.publish(
+            self._build_drone_markers(stamp, fields, target_fields)
+        )
+        # Preserve the base-stack contract for volatile subscribers while the
+        # transient-local writer also serves late durable subscribers.
         self._marker_pub.publish(self._build_scenario_markers(stamp))
-        self._drone_marker_pub.publish(self._build_drone_markers(stamp))
-        if not self._static_markers_published and self._map_assets is not None:
-            mesh, nature = self._map_assets
-            self._terrain_marker_pub.publish(self._build_terrain_markers(stamp, mesh))
-            self._nature_marker_pub.publish(
-                self._build_nature_markers(stamp, nature, mesh)
-            )
+        if not self._static_markers_published:
+            if self._map_assets is not None:
+                mesh, nature = self._map_assets
+                self._terrain_marker_pub.publish(
+                    self._build_terrain_markers(stamp, mesh)
+                )
+                self._nature_marker_pub.publish(
+                    self._build_nature_markers(stamp, nature, mesh)
+                )
             self._static_markers_published = True
         self._rclpy.spin_once(self._node, timeout_sec=0.0)
 
     def _load_map_assets(self) -> tuple[TerrainMesh, dict[str, list[dict[str, Any]]]] | None:
-        if os.environ.get("SCENARIO", "landing_pad") != "mountain_map":
+        if normalize_scenario_name(os.environ.get("SCENARIO")) not in {
+            "mountain_map",
+            "mountain_two_drones",
+        }:
             return None
         asset_dir = Path("/workspace/models/scenarios/mountain_map")
         if not asset_dir.exists():
@@ -441,21 +589,7 @@ class SimVisualizationPublisher:
         fields: GroundTruthOdomFields,
         child_frame_id: str = BASE_LINK_FRAME,
     ) -> Any:
-        odom = self._odometry_type()
-        odom.header.stamp = stamp
-        odom.header.frame_id = WORLD_FRAME
-        odom.child_frame_id = child_frame_id
-        odom.pose.pose.position.x = fields.position_enu[0]
-        odom.pose.pose.position.y = fields.position_enu[1]
-        odom.pose.pose.position.z = fields.position_enu[2]
-        odom.pose.pose.orientation.x = fields.orientation_xyzw[0]
-        odom.pose.pose.orientation.y = fields.orientation_xyzw[1]
-        odom.pose.pose.orientation.z = fields.orientation_xyzw[2]
-        odom.pose.pose.orientation.w = fields.orientation_xyzw[3]
-        odom.twist.twist.linear.x = fields.linear_velocity_enu[0]
-        odom.twist.twist.linear.y = fields.linear_velocity_enu[1]
-        odom.twist.twist.linear.z = fields.linear_velocity_enu[2]
-        return odom
+        return self._telemetry.build_odometry(stamp, fields, child_frame_id)
 
     def _build_tf_message(
         self,
@@ -463,45 +597,7 @@ class SimVisualizationPublisher:
         fields: GroundTruthOdomFields,
         target_fields: GroundTruthOdomFields | None = None,
     ) -> Any:
-        transforms = [
-            self._build_transform(
-                stamp=stamp,
-                parent_frame_id=WORLD_FRAME,
-                child_frame_id=ODOM_FRAME,
-                translation_xyz=(0.0, 0.0, 0.0),
-                rotation_xyzw=(0.0, 0.0, 0.0, 1.0),
-            ),
-            self._build_transform(
-                stamp=stamp,
-                parent_frame_id=WORLD_FRAME,
-                child_frame_id=BASE_LINK_FRAME,
-                translation_xyz=fields.position_enu,
-                rotation_xyzw=fields.orientation_xyzw,
-            )
-        ]
-        if target_fields is not None:
-            transforms.append(
-                self._build_transform(
-                    stamp=stamp,
-                    parent_frame_id=WORLD_FRAME,
-                    child_frame_id=TARGET_BASE_LINK_FRAME,
-                    translation_xyz=target_fields.position_enu,
-                    rotation_xyzw=target_fields.orientation_xyzw,
-                )
-            )
-        for site_transform in self._site_transforms:
-            transforms.append(
-                self._build_transform(
-                    stamp=stamp,
-                    parent_frame_id=site_transform.parent_frame_id,
-                    child_frame_id=site_transform.child_frame_id,
-                    translation_xyz=site_transform.translation_xyz,
-                    rotation_xyzw=site_transform.rotation_xyzw,
-                )
-            )
-        message = self._tf_message_type()
-        message.transforms = transforms
-        return message
+        return self._telemetry.build_tf_message(stamp, fields, target_fields)
 
     def _build_transform(
         self,
@@ -511,20 +607,13 @@ class SimVisualizationPublisher:
         translation_xyz: tuple[float, float, float],
         rotation_xyzw: tuple[float, float, float, float],
     ) -> Any:
-        from geometry_msgs.msg import TransformStamped
-
-        transform = TransformStamped()
-        transform.header.stamp = stamp
-        transform.header.frame_id = parent_frame_id
-        transform.child_frame_id = child_frame_id
-        transform.transform.translation.x = translation_xyz[0]
-        transform.transform.translation.y = translation_xyz[1]
-        transform.transform.translation.z = translation_xyz[2]
-        transform.transform.rotation.x = rotation_xyzw[0]
-        transform.transform.rotation.y = rotation_xyzw[1]
-        transform.transform.rotation.z = rotation_xyzw[2]
-        transform.transform.rotation.w = rotation_xyzw[3]
-        return transform
+        return self._telemetry._build_transform(
+            stamp,
+            parent_frame_id,
+            child_frame_id,
+            translation_xyz,
+            rotation_xyzw,
+        )
 
     def _build_scenario_markers(self, stamp: Any) -> Any:
         markers = [self._delete_all_scenario_markers(stamp)]
@@ -536,20 +625,49 @@ class SimVisualizationPublisher:
         marker_array.markers = markers
         return marker_array
 
-    def _build_drone_markers(self, stamp: Any) -> Any:
+    def _build_drone_markers(
+        self,
+        stamp: Any,
+        fields: GroundTruthOdomFields | None = None,
+        target_fields: GroundTruthOdomFields | None = None,
+    ) -> Any:
+        if self._two_drone_config is None:
+            specs = self._drone_marker_specs
+            frame_id = BASE_LINK_FRAME
+        else:
+            if fields is None:
+                raise ValueError("two-drone markers require chaser odometry fields")
+            if target_fields is None:
+                raise ValueError("two-drone markers require target odometry fields")
+            specs = two_drone_marker_specs(
+                fields,
+                target_fields,
+                self._rotor_positions,
+                self._two_drone_config,
+                self._route_marker_points,
+            )
+            frame_id = WORLD_FRAME
         markers = [
-            self._drone_shape_marker(stamp, spec) for spec in self._drone_marker_specs
+            self._drone_shape_marker(stamp, spec, frame_id=frame_id)
+            for spec in specs
         ]
         marker_array = self._marker_array_type()
         marker_array.markers = markers
         return marker_array
 
-    def _drone_shape_marker(self, stamp: Any, spec: DroneMarkerSpec) -> Any:
+    def _drone_shape_marker(
+        self,
+        stamp: Any,
+        spec: DroneMarkerSpec,
+        *,
+        frame_id: str = BASE_LINK_FRAME,
+    ) -> Any:
+        from geometry_msgs.msg import Point
         from visualization_msgs.msg import Marker
 
         marker = Marker()
         marker.header.stamp = stamp
-        marker.header.frame_id = BASE_LINK_FRAME
+        marker.header.frame_id = frame_id
         marker.ns = spec.namespace
         marker.id = spec.marker_id
         marker.action = Marker.ADD
@@ -557,12 +675,19 @@ class SimVisualizationPublisher:
             marker.type = Marker.CUBE
         elif spec.shape == "cylinder":
             marker.type = Marker.CYLINDER
+        elif spec.shape == "sphere":
+            marker.type = Marker.SPHERE
+        elif spec.shape == "line_strip":
+            marker.type = Marker.LINE_STRIP
         else:
             raise ValueError(f"unsupported drone marker shape: {spec.shape}")
         marker.pose.position.x = spec.position_xyz[0]
         marker.pose.position.y = spec.position_xyz[1]
         marker.pose.position.z = spec.position_xyz[2]
-        marker.pose.orientation.w = 1.0
+        marker.pose.orientation.x = spec.orientation_xyzw[0]
+        marker.pose.orientation.y = spec.orientation_xyzw[1]
+        marker.pose.orientation.z = spec.orientation_xyzw[2]
+        marker.pose.orientation.w = spec.orientation_xyzw[3]
         marker.scale.x = spec.scale_xyz[0]
         marker.scale.y = spec.scale_xyz[1]
         marker.scale.z = spec.scale_xyz[2]
@@ -570,6 +695,7 @@ class SimVisualizationPublisher:
         marker.color.g = spec.color_rgba[1]
         marker.color.b = spec.color_rgba[2]
         marker.color.a = spec.color_rgba[3]
+        marker.points = [Point(x=x, y=y, z=z) for x, y, z in spec.points_xyz]
         return marker
 
     def _marker_base(self, stamp: Any, namespace: str, marker_id: int) -> Any:
