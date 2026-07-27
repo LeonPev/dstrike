@@ -38,13 +38,22 @@ def test_two_drone_world_has_terrain_aware_target_and_chaser_spawns() -> None:
     config = scenario.two_drone_config
     for name, xy_m, agl_m in (
         ("target", config.target_drone.start_xy_m, config.target_drone.altitude_agl_m),
-        ("chaser", config.chaser_drone.start_xy_m, config.chaser_drone.initial_agl_m),
     ):
         body_id = object_id(quad.model, mujoco.mjtObj.mjOBJ_BODY, name)
         assert body_id >= 0
         position = quad.model.body_pos[body_id]
         assert tuple(position[:2]) == xy_m
         assert math.isclose(position[2], terrain.height_at(*xy_m) + agl_m, abs_tol=1e-6)
+    chaser = config.chaser_drone
+    chaser_id = object_id(quad.model, mujoco.mjtObj.mjOBJ_BODY, "chaser")
+    pad_id = object_id(quad.model, mujoco.mjtObj.mjOBJ_GEOM, "scenario_landing_pad")
+    assert tuple(quad.model.geom_pos[pad_id][:2]) == chaser.start_xy_m
+    pad_top_z = quad.model.geom_pos[pad_id][2] + quad.model.geom_size[pad_id][1]
+    assert math.isclose(quad.model.body_pos[chaser_id][2], pad_top_z + chaser.initial_agl_m, abs_tol=1e-6)
+    pad_bottom_z = quad.model.geom_pos[pad_id][2] - quad.model.geom_size[pad_id][1]
+    pad_radius_m = quad.model.geom_size[pad_id][0]
+    for dx, dy in ((0.0, 0.0), (pad_radius_m, 0.0), (-pad_radius_m, 0.0), (0.0, pad_radius_m), (0.0, -pad_radius_m)):
+        assert terrain.height_at(chaser.start_xy_m[0] + dx, chaser.start_xy_m[1] + dy) <= pad_bottom_z + 1e-6
 
 
 def test_target_is_kinematic_and_explicitly_non_contacting() -> None:
@@ -107,6 +116,19 @@ def test_chaser_retains_free_joint_rotors_and_terrain_contact() -> None:
     assert touched
 
 
+def test_chaser_settles_level_and_stationary_on_launch_pad() -> None:
+    scenario, quad, _ = compiled_world()
+    pose = scenario_spawn_pose(scenario)
+    quad.reset(pose.position_xyz, pose.quaternion_wxyz)
+    for _ in range(2500):
+        quad.step((0.0, 0.0, 0.0, 0.0))
+    body_rotation = quad.data.xmat[quad.body_id].reshape(3, 3)
+    tilt_deg = math.degrees(math.acos(max(-1.0, min(1.0, float(body_rotation[2, 2])))))
+    horizontal_speed_mps = math.hypot(float(quad.data.qvel[0]), float(quad.data.qvel[1]))
+    assert tilt_deg < 5.0
+    assert horizontal_speed_mps < 0.05
+
+
 def test_ardupilot_reset_uses_configured_chaser_spawn() -> None:
     scenario = scenario_from_name("mountain_two_drones")
     assert scenario.two_drone_config is not None
@@ -114,7 +136,7 @@ def test_ardupilot_reset_uses_configured_chaser_spawn() -> None:
     chaser = scenario.two_drone_config.chaser_drone
     assert pose.position_xyz[:2] == chaser.start_xy_m
     assert math.isclose(
-        pose.position_xyz[2] - pose.terrain_height_m,
+        pose.position_xyz[2] - pose.launch_surface_height_m,
         chaser.initial_agl_m,
         abs_tol=1e-9,
     )

@@ -9,6 +9,14 @@
             size="0.010" material="arm_light" friction="1.0 0.005 0.0001"/>
       <geom name="{prefix}_arm_y" type="capsule" fromto="0 -0.24 0 0 0.24 0"
             size="0.010" material="arm_light" friction="1.0 0.005 0.0001"/>
+      <geom name="{prefix}_leg_front_left" type="capsule" fromto="0.10 0.10 -0.04 0.10 0.10 -0.27"
+            size="0.030" material="arm_light" friction="1.0 0.005 0.0001"/>
+      <geom name="{prefix}_leg_front_right" type="capsule" fromto="0.10 -0.10 -0.04 0.10 -0.10 -0.27"
+            size="0.030" material="arm_light" friction="1.0 0.005 0.0001"/>
+      <geom name="{prefix}_leg_rear_left" type="capsule" fromto="-0.10 0.10 -0.04 -0.10 0.10 -0.27"
+            size="0.030" material="arm_light" friction="1.0 0.005 0.0001"/>
+      <geom name="{prefix}_leg_rear_right" type="capsule" fromto="-0.10 -0.10 -0.04 -0.10 -0.10 -0.27"
+            size="0.030" material="arm_light" friction="1.0 0.005 0.0001"/>
       <site name="{prefix}_rotor_front_left" pos="0.18 0.18 0.02"
             type="sphere" size="0.025" material="rotor_blue"/>
       <site name="{prefix}_rotor_front_right" pos="0.18 -0.18 0.02"

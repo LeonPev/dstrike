@@ -9,9 +9,13 @@
   <buildtool_depend>ament_python</buildtool_depend>
 
   <depend>geometry_msgs</depend>
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
   <depend>nav_msgs</depend>
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

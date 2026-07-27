@@ -36,6 +36,7 @@ from src.physics.scenarios import (
 )
 from src.physics.terrain_map import SpawnPose, TerrainMap
 from src.physics.target_motion import TargetMotion
+from src.physics.two_drone_world import chaser_launch_surface_z
 
 
 GRAVITY_MPS2 = 9.80665
@@ -160,15 +161,16 @@ def scenario_spawn_pose(scenario: ScenarioConfig) -> SpawnPose:
     if scenario.two_drone_config is not None:
         chaser = scenario.two_drone_config.chaser_drone
         terrain_height_m = terrain.height_at(*chaser.start_xy_m)
+        launch_surface_height_m = chaser_launch_surface_z(scenario.two_drone_config, terrain)
         return SpawnPose(
             position_xyz=(
                 chaser.start_xy_m[0],
                 chaser.start_xy_m[1],
-                terrain_height_m + chaser.initial_agl_m,
+                launch_surface_height_m + chaser.initial_agl_m,
             ),
             quaternion_wxyz=heading_quaternion_wxyz(chaser.heading_deg),
             terrain_height_m=terrain_height_m,
-            launch_surface_height_m=terrain_height_m,
+            launch_surface_height_m=launch_surface_height_m,
             heading_deg=chaser.normalized_heading_deg,
         )
     return terrain.safe_spawn_pose(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -14,6 +15,27 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 QUAD_VISUAL_PATH = PROJECT_ROOT / "models/common/quad_visual.xml"
 CHASER_BODY_NAME = "chaser"
 TARGET_BODY_NAME = "target"
+LANDING_PAD_NAME = "scenario_landing_pad"
+
+
+def chaser_launch_surface_z(
+    config: TwoDroneScenarioConfig,
+    terrain: TerrainMap,
+    pad_radius_m: float = 1.5,
+    pad_half_height_m: float = 0.05,
+) -> float:
+    """Return a level pad top that clears its complete terrain footprint."""
+    chaser = config.chaser_drone
+    footprint_heights = []
+    for ix in range(-6, 7):
+        for iy in range(-6, 7):
+            dx = pad_radius_m * ix / 6.0
+            dy = pad_radius_m * iy / 6.0
+            if math.hypot(dx, dy) <= pad_radius_m:
+                footprint_heights.append(
+                    terrain.height_at(chaser.start_xy_m[0] + dx, chaser.start_xy_m[1] + dy)
+                )
+    return max(footprint_heights) + 2.0 * pad_half_height_m
 
 
 def compose_two_drone_world(
@@ -44,10 +66,25 @@ def compose_two_drone_world(
 
     chaser = config.chaser_drone
     target = config.target_drone
+    landing_pad = scenario_root.find(f"./worldbody/geom[@name='{LANDING_PAD_NAME}']")
+    if landing_pad is None:
+        raise ValueError("mountain_two_drones XML must define scenario_landing_pad")
+    pad_size = tuple(float(value) for value in landing_pad.attrib.get("size", "").split())
+    if len(pad_size) != 2 or pad_size[1] <= 0.0:
+        raise ValueError("scenario_landing_pad must have positive cylinder size")
+    pad_half_height_m = pad_size[1]
+    pad_radius_m = pad_size[0]
+    launch_surface_z = chaser_launch_surface_z(config, terrain, pad_radius_m, pad_half_height_m)
+    pad_bottom_z = launch_surface_z - 2.0 * pad_half_height_m
+    landing_pad.set(
+        "pos",
+        f"{chaser.start_xy_m[0]:.9g} {chaser.start_xy_m[1]:.9g} "
+        f"{pad_bottom_z + pad_half_height_m:.9g}",
+    )
     _set_pose(
         base_body,
         chaser.start_xy_m,
-        terrain.height_at(*chaser.start_xy_m) + chaser.initial_agl_m,
+        launch_surface_z + chaser.initial_agl_m,
         chaser.heading_deg,
     )
     _set_pose(
