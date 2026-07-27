@@ -4,6 +4,7 @@ import sys
 import pytest
 
 from src.physics.multi_vehicle_json import DUAL_SITL_CHANNELS, SharedMuJoCoWorld, validate_channels
+from src.physics.ros_camera import camera_configs_for_scenario
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +41,18 @@ def test_dual_world_has_two_dynamic_free_bodies():
     assert world.model.nq >= 14
     assert world.state("target").position.shape == (3,)
     assert world.state("chaser").position.shape == (3,)
+
+
+def test_dual_world_camera_contract_uses_scenario_rate_when_enabled():
+    world = SharedMuJoCoWorld()
+    rate = world.scenario.two_drone_config.visualization.camera_rate_hz
+    configs = camera_configs_for_scenario(
+        "mountain_two_drones",
+        camera_rate_hz=rate,
+        values={"CAMERA_ENABLED": "1"},
+    )
+    assert len(configs) == 2
+    assert {config.fps for config in configs} == {rate}
 
 
 def test_compose_and_param_files_pin_distinct_vehicle_identity_contract():

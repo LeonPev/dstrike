@@ -119,7 +119,12 @@ test-e2e-two-drone:
 	@bash scripts/run_scn009_e2e.sh
 
 up-dual-sitl:
-	SCENARIO=mountain_two_drones DUAL_SITL=1 docker compose --profile dual-sitl --profile viz up -d sitl-target sitl-chaser physics ros2 viz
+	@status=0; \
+	$(MAKE) down || status=$$?; \
+	if [ $$status -eq 0 ]; then SCENARIO=mountain_two_drones DUAL_SITL=1 CAMERA_ENABLED="$${CAMERA_ENABLED:-1}" RVIZ_CONFIG=/workspace/config/two_drone_mountain.rviz docker compose --profile dual-sitl --profile viz up -d --force-recreate physics ros2 sitl-target sitl-chaser viz || status=$$?; fi; \
+	if [ $$status -eq 0 ]; then docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash; source /workspace/install/setup.bash; cd /workspace; python3 scripts/dual_sitl_probe.py --timeout-s 120' || status=$$?; fi; \
+	if [ $$status -ne 0 ]; then printf '%s\n' 'ERROR: SCN-010 dual-SITL visualization startup/probe failed' >&2; docker compose logs --tail 250 --no-color sitl-target sitl-chaser physics ros2 viz >&2 || true; $(MAKE) down >/dev/null 2>&1 || true; exit $$status; fi; \
+	printf '%s\n' 'Dual-SITL visualization ready: http://localhost:6080/vnc.html?autoconnect=true&resize=scale'
 
 test-dual-sitl:
 	@bash scripts/run_dual_sitl_check.sh

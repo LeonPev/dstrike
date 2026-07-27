@@ -156,7 +156,11 @@ def serve(host: str = "0.0.0.0", stdout: TextIO = sys.stdout, stderr: TextIO = s
     selector = selectors.DefaultSelector()
     sockets: dict[socket.socket, VehicleChannel] = {}
     visualization = SimVisualizationPublisher(world, publish_rate_hz=10.0, scenario_markers=marker_specs_from_model_xml(world.model_xml), publish_target=True, two_drone_config=world.scenario.two_drone_config, terrain=world.terrain)
-    cameras = SimCameraPublishers(world, camera_configs_for_scenario("mountain_two_drones"))
+    camera_configs = camera_configs_for_scenario(
+        "mountain_two_drones",
+        camera_rate_hz=world.scenario.two_drone_config.visualization.camera_rate_hz,
+    )
+    cameras = SimCameraPublishers(world, camera_configs) if camera_configs else None
     try:
         for channel in channels:
             udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -183,11 +187,13 @@ def serve(host: str = "0.0.0.0", stdout: TextIO = sys.stdout, stderr: TextIO = s
                 encoded = json.dumps(ardupilot_state_from_quad_state(state), separators=(",", ":")).encode() + b"\n"
                 udp.sendto(encoded, sender)
                 visualization.maybe_publish(world.state("chaser"), target_state=world.state("target"))
-                cameras.maybe_publish()
+                if cameras is not None:
+                    cameras.maybe_publish()
     finally:
         for udp in sockets:
             udp.close()
-        cameras.close()
+        if cameras is not None:
+            cameras.close()
         visualization.close()
 
 
