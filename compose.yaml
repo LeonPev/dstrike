@@ -146,6 +146,7 @@ services:
     environment:
       ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
       SCENARIO: ${SCENARIO:-landing_pad}
+      CAMERA_ENABLED: ${CAMERA_ENABLED:-true}
       RVIZ_CONFIG: ${RVIZ_CONFIG:-/workspace/config/drone.rviz}
       VNC_GEOMETRY: ${VNC_GEOMETRY:-1440x900x24}
       DISPLAY: ":1"

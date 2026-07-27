@@ -162,8 +162,20 @@ container.
 
 The planned target-and-chaser simulation is specified in the
 [Two-drone mountain scenario plan](plans/two_drone_mountain_scenario_plan.md).
-Its launch and end-to-end Make targets are safe placeholders until SCN-007 and
-SCN-009 implement them; the two-drone scenario is not runnable yet.
+The Docker-only RViz2/noVNC view is available with:
+
+```bash
+CAMERA_ENABLED=1 SCENARIO=mountain_two_drones bash scripts/run_scn007_viz_check.sh
+CAMERA_ENABLED=1 make up-two-drone-viz
+# open http://localhost:6080/vnc.html?autoconnect=true&resize=scale
+make down
+```
+
+The first command is the bounded automated startup/probe/cleanup check. The
+second leaves the verified stack running for manual viewing. RViz shows the
+mountain, both drones and odometry streams, route/formation markers, TF, and
+both front-camera panels. The end-to-end mission target remains a placeholder
+until SCN-009.
 
 ## Configuration
 
@@ -173,7 +185,7 @@ Edit `.env` after copying `.env.example`.
 | --- | --- | --- |
 | `NOVNC_PORT` | `6080` | Browser viewer port on `127.0.0.1` |
 | `VNC_GEOMETRY` | `1440x900x24` | Virtual desktop size matched to the saved RViz layout |
-| `SCENARIO` | `landing_pad` | Scenario: `empty_world`, `landing_pad`, `obstacle_course`, or `mountain_map` |
+| `SCENARIO` | `landing_pad` | Scenario: `empty_world`, `landing_pad`, `obstacle_course`, `mountain_map`, or `mountain_two_drones` |
 | `CAMERA_ENABLED` | `true` | Publish the MuJoCo front camera topics |
 | `CAMERA_WIDTH` / `CAMERA_HEIGHT` | `640` / `480` | Camera image size |
 | `CAMERA_FPS` | `10` | Camera publish rate |

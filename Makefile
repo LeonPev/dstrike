@@ -30,7 +30,7 @@ help:
 		'  generate-map   Generate and verify deterministic mountain map assets in Docker' \
 		'  up-map-viz     Generate the mountain map and start RViz2/noVNC on localhost:6080' \
 		'  test-map       Run bounded mountain map checks and landing-pad regressions' \
-		'  up-two-drone-viz  Placeholder: implemented by SCN-007' \
+		'  up-two-drone-viz  Start two-drone RViz2/noVNC on localhost:6080 after bounded probes' \
 		'  test-e2e-two-drone  Placeholder: implemented by SCN-009' \
 		'  down           Stop and remove Compose services' \
 		'  logs           Follow Compose service logs and tee output to artifacts/test-logs' \
@@ -102,8 +102,16 @@ test-map:
 	@bash scripts/run_map_smoke.sh
 
 up-two-drone-viz:
-	@printf '%s\n' 'up-two-drone-viz is a placeholder; the real target is implemented by SCN-007' >&2
-	@exit 1
+	@status=0; \
+	if [ "$${SCENARIO:-mountain_two_drones}" != mountain_two_drones ]; then printf '%s\n' 'ERROR: up-two-drone-viz requires SCENARIO=mountain_two_drones' >&2; exit 2; fi; \
+	$(MAKE) down || status=$$?; \
+	if [ $$status -eq 0 ]; then SCENARIO=mountain_two_drones CAMERA_ENABLED="$${CAMERA_ENABLED:-1}" RVIZ_CONFIG=/workspace/config/two_drone_mountain.rviz docker compose --profile mujoco --profile viz up -d physics ros2 sitl-json viz || status=$$?; fi; \
+	attempt=0; \
+	while [ $$status -eq 0 ] && [ $$attempt -lt 60 ]; do running="$$(docker compose --profile mujoco --profile viz ps --status running --services)"; printf '%s\n' "$$running" | grep -qx physics && printf '%s\n' "$$running" | grep -qx ros2 && printf '%s\n' "$$running" | grep -qx sitl-json && printf '%s\n' "$$running" | grep -qx viz && break; attempt=$$((attempt + 1)); sleep 2; done; \
+	if [ $$status -eq 0 ]; then running="$$(docker compose --profile mujoco --profile viz ps --status running --services)"; printf '%s\n' "$$running" | grep -qx physics && printf '%s\n' "$$running" | grep -qx ros2 && printf '%s\n' "$$running" | grep -qx sitl-json && printf '%s\n' "$$running" | grep -qx viz || status=1; fi; \
+	if [ $$status -eq 0 ]; then docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash; if [[ -f /workspace/install/setup.bash ]]; then source /workspace/install/setup.bash; fi; cd /workspace; python3 scripts/two_drone_viz_probe.py --timeout-s 90' || status=$$?; fi; \
+	if [ $$status -ne 0 ]; then printf '%s\n' 'ERROR: SCN-007 visualization startup/probe failed' >&2; docker compose logs --no-color viz ros2 physics sitl-json >&2 || true; $(MAKE) down >/dev/null 2>&1 || true; exit $$status; fi; \
+	printf '%s\n' 'Two-drone visualization ready: http://localhost:6080/vnc.html?autoconnect=true&resize=scale'
 
 test-e2e-two-drone:
 	@printf '%s\n' 'test-e2e-two-drone is a placeholder; the real target is implemented by SCN-009' >&2

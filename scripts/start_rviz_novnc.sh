@@ -68,5 +68,6 @@ fi
 pids+=("$!")
 
 log "open http://localhost:${NOVNC_PORT}/vnc.html?autoconnect=true&resize=scale"
+log "RViz fixed configuration is ready for browser viewing"
 
 wait -n "${pids[@]}"
