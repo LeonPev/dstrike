@@ -20,6 +20,7 @@ x-sim-common: &sim-common
     ARDUPILOT_REF: ${ARDUPILOT_REF:-92b0cd788ec29406f26c6f9c31d5ceedbd1cc538}
     ARTIFACTS_DIR: /workspace/artifacts
     SCENARIO: ${SCENARIO:-landing_pad}
+    DUAL_SITL: ${DUAL_SITL:-0}
     SIM_RESET_AFTER_FRAMES: ${SIM_RESET_AFTER_FRAMES:-0}
     CAMERA_ENABLED: ${CAMERA_ENABLED:-true}
     CAMERA_NAME: ${CAMERA_NAME:-front_cam}
@@ -41,11 +42,19 @@ services:
 
   physics:
     <<: *sim-common
-    profiles: ["mujoco"]
+    profiles: ["mujoco", "dual-sitl"]
     init: true
     expose:
       - "9002/udp"
-    command: ["python3", "-m", "src.physics.mujoco_json"]
+      - "9003/udp"
+    command:
+      - bash
+      - -lc
+      - |
+        if [ "$${DUAL_SITL:-0}" = "1" ]; then
+          exec python3 -m src.physics.multi_vehicle_json
+        fi
+        exec python3 -m src.physics.mujoco_json
 
   ros2:
     <<: *sim-common
@@ -68,6 +77,9 @@ services:
             -p odom_frame_id:=world
             -p odom_alignment_topic:=/sim/chaser/ground_truth/odom
           )
+        fi
+        if [ "$${DUAL_SITL:-0}" = "1" ]; then
+          exec ros2 launch drone_bridge dual_sitl.launch.py
         fi
         if [ "$${NORMALIZED_SCENARIO}" = "mountain_two_drones" ]; then
           exec ros2 launch drone_bridge two_drone_scenario.launch.py
@@ -137,6 +149,46 @@ services:
         mkdir -p "$${ARDUPILOT_ARTIFACT_DIR}"
         echo "ArduPilot SITL artifacts: $${ARDUPILOT_ARTIFACT_DIR}"
         exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --use-dir="$${ARDUPILOT_ARTIFACT_DIR}" --model "JSON:$${PHYSICS_IP}" --add-param-file=/workspace/config/ros2_mavlink_streams.parm --sitl-instance-args=--serial0=udpclient:$${ROS2_IP}:14550
+
+  sitl-target:
+    <<: *sim-common
+    profiles: ["dual-sitl"]
+    depends_on: [physics, ros2]
+    init: true
+    user: ardupilot
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        export HOME=/home/ardupilot USER=ardupilot SITL_RITW_TERMINAL=bash
+        cd /opt/ardupilot
+        PHYSICS_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("physics"))')"
+        ROS2_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("ros2"))')"
+        ARTIFACT_DIR=/workspace/artifacts/ardupilot/sitl-target
+        mkdir -p "$${ARTIFACT_DIR}"
+        echo "dual_sitl role=target SYSID_THISMAV=2 physics_port=9003 mavlink_port=14551"
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --use-dir="$${ARTIFACT_DIR}" --model "JSON:$${PHYSICS_IP}" --add-param-file=/workspace/config/dual_sitl_target.parm --sitl-instance-args="--sim-port-out=9003 --serial0=udpclient:$${ROS2_IP}:14551"
+
+  sitl-chaser:
+    <<: *sim-common
+    profiles: ["dual-sitl"]
+    depends_on: [physics, ros2]
+    init: true
+    user: ardupilot
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        export HOME=/home/ardupilot USER=ardupilot SITL_RITW_TERMINAL=bash
+        cd /opt/ardupilot
+        PHYSICS_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("physics"))')"
+        ROS2_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("ros2"))')"
+        ARTIFACT_DIR=/workspace/artifacts/ardupilot/sitl-chaser
+        mkdir -p "$${ARTIFACT_DIR}"
+        echo "dual_sitl role=chaser SYSID_THISMAV=1 physics_port=9002 mavlink_port=14550"
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --use-dir="$${ARTIFACT_DIR}" --model "JSON:$${PHYSICS_IP}" --add-param-file=/workspace/config/dual_sitl_chaser.parm --sitl-instance-args="--sim-port-out=9002 --serial0=udpclient:$${ROS2_IP}:14550"
 
   viz:
     <<: *sim-common

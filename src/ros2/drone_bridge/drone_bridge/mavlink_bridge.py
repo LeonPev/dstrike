@@ -770,6 +770,7 @@ class MavlinkBridgeNode(Node):
         self.declare_parameter("use_sim_state", False)
         self.declare_parameter("odom_frame_id", "odom")
         self.declare_parameter("odom_alignment_topic", "")
+        self.declare_parameter("child_frame_id", "base_link")
         endpoint = (
             self.get_parameter("connect").get_parameter_value().string_value
             or "udpin:0.0.0.0:14550"
@@ -786,12 +787,18 @@ class MavlinkBridgeNode(Node):
             .get_parameter_value()
             .string_value
         )
+        self._child_frame_id = (
+            self.get_parameter("child_frame_id").get_parameter_value().string_value
+            or "base_link"
+        )
         self._odom_alignment_reference_enu: tuple[float, float, float] | None = None
         self._odom_offset_enu = (0.0, 0.0, 0.0)
         self._odom_alignment_complete = not bool(self._odom_alignment_topic)
 
-        self._heartbeat_pub = self.create_publisher(String, "/drone/heartbeat", 10)
-        self._odom_pub = self.create_publisher(Odometry, "/drone/odom", 10)
+        # Relative topic names preserve /drone/* at the root while allowing the
+        # dual-SITL launch file to isolate each adapter with a ROS namespace.
+        self._heartbeat_pub = self.create_publisher(String, "drone/heartbeat", 10)
+        self._odom_pub = self.create_publisher(Odometry, "drone/odom", 10)
         self._odom_alignment_sub = (
             self.create_subscription(
                 Odometry,
@@ -802,21 +809,21 @@ class MavlinkBridgeNode(Node):
             if self._odom_alignment_topic
             else None
         )
-        self.create_subscription(Bool, "/drone/arm", self._on_arm, 10)
+        self.create_subscription(Bool, "drone/arm", self._on_arm, 10)
         self.create_subscription(
             Bool,
-            "/drone/force_disarm",
+            "drone/force_disarm",
             self._on_force_disarm,
             10,
         )
         self.create_subscription(
             Float32,
-            "/drone/takeoff_alt_m",
+            "drone/takeoff_alt_m",
             self._on_takeoff_altitude,
             10,
         )
-        self.create_subscription(Bool, "/drone/land", self._on_land, 10)
-        self.create_subscription(Twist, "/drone/cmd_vel", self._on_cmd_vel, 10)
+        self.create_subscription(Bool, "drone/land", self._on_land, 10)
+        self.create_subscription(Twist, "drone/cmd_vel", self._on_cmd_vel, 10)
 
         self._worker = MavlinkWorker(
             endpoint=endpoint,
@@ -921,7 +928,7 @@ class MavlinkBridgeNode(Node):
         odom = Odometry()
         odom.header.stamp = self.get_clock().now().to_msg()
         odom.header.frame_id = self._odom_frame_id
-        odom.child_frame_id = "base_link"
+        odom.child_frame_id = self._child_frame_id
         odom.pose.pose.position.x = fields.position_enu[0]
         odom.pose.pose.position.y = fields.position_enu[1]
         odom.pose.pose.position.z = fields.position_enu[2]

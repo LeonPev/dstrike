@@ -43,6 +43,8 @@ def compose_two_drone_world(
     scenario_root: ET.Element,
     config: TwoDroneScenarioConfig,
     terrain: TerrainMap,
+    *,
+    dynamic_target: bool = False,
 ) -> None:
     """Patch validated spawn poses and shared quad geometry into both bodies."""
     base_body = base_root.find("./worldbody/body[@name='base_link']")
@@ -62,7 +64,10 @@ def compose_two_drone_world(
         if child.tag in {"geom", "site", "camera"}:
             base_body.remove(child)
     _append_quad_visual(base_body, "chaser", contacting=True)
-    _append_quad_visual(target_body, "target", contacting=False)
+    _append_quad_visual(target_body, "target", contacting=dynamic_target)
+    if dynamic_target:
+        target_body.attrib.pop("mocap", None)
+        ET.SubElement(target_body, "freejoint", {"name": "target_free_joint"})
 
     chaser = config.chaser_drone
     target = config.target_drone

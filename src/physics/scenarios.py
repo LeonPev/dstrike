@@ -126,6 +126,8 @@ def normalize_scenario_name(name: str | None) -> str:
 def build_scenario_model_xml(
     base_model_path: str | Path,
     scenario: ScenarioConfig,
+    *,
+    dynamic_target: bool = False,
 ) -> str:
     """Merge a scenario fragment into the base MuJoCo model XML."""
     base_path = Path(base_model_path)
@@ -151,6 +153,7 @@ def build_scenario_model_xml(
             scenario_root,
             scenario.two_drone_config,
             terrain,
+            dynamic_target=dynamic_target,
         )
 
     _merge_section_children(base_root, scenario_root, "asset")

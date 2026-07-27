@@ -5,7 +5,7 @@ DURATION ?= 10
 LOG_FLAGS ?= -f
 TOPIC ?= /drone/odom
 
-.PHONY: help preflight build up up-baseline baseline-heartbeat up-mujoco probe-ros-visualization probe-camera-image topic-list topic-hz bag-record artifact-dirs test-json-stub test-mujoco-quad test-frame-conventions test-ros-frame-conventions up-viz generate-map up-map-viz test-map up-two-drone-viz test-e2e-two-drone down logs shell-ros2 shell-sitl shell-physics test test-e2e
+.PHONY: help preflight build up up-baseline baseline-heartbeat up-mujoco probe-ros-visualization probe-camera-image topic-list topic-hz bag-record artifact-dirs test-json-stub test-mujoco-quad test-frame-conventions test-ros-frame-conventions up-viz generate-map up-map-viz test-map up-two-drone-viz test-e2e-two-drone up-dual-sitl test-dual-sitl down logs shell-ros2 shell-sitl shell-physics test test-e2e
 
 help:
 	@printf '%s\n' \
@@ -32,6 +32,8 @@ help:
 		'  test-map       Run bounded mountain map checks and landing-pad regressions' \
 		'  up-two-drone-viz  Start two-drone RViz2/noVNC on localhost:6080 after bounded probes' \
 		'  test-e2e-two-drone  Run bounded two-drone takeoff, intercept, and formation E2E' \
+		'  up-dual-sitl   Start optional two-ArduPilot SITL stack' \
+		'  test-dual-sitl Run bounded SCN-010 dual-SITL routing probe' \
 		'  down           Stop and remove Compose services' \
 		'  logs           Follow Compose service logs and tee output to artifacts/test-logs' \
 		'  shell-ros2     Open a shell in the ros2 service image' \
@@ -116,8 +118,14 @@ up-two-drone-viz:
 test-e2e-two-drone:
 	@bash scripts/run_scn009_e2e.sh
 
+up-dual-sitl:
+	SCENARIO=mountain_two_drones DUAL_SITL=1 docker compose --profile dual-sitl --profile viz up -d sitl-target sitl-chaser physics ros2 viz
+
+test-dual-sitl:
+	@bash scripts/run_dual_sitl_check.sh
+
 down:
-	docker compose --profile baseline --profile mujoco --profile viz down
+	docker compose --profile baseline --profile mujoco --profile viz --profile dual-sitl down --remove-orphans
 
 logs: artifact-dirs
 	docker compose logs $(LOG_FLAGS) | tee $(ARTIFACTS_DIR)/test-logs/compose-$$(date -u +%Y%m%dT%H%M%SZ).log
