@@ -31,7 +31,7 @@ help:
 		'  up-map-viz     Generate the mountain map and start RViz2/noVNC on localhost:6080' \
 		'  test-map       Run bounded mountain map checks and landing-pad regressions' \
 		'  up-two-drone-viz  Start two-drone RViz2/noVNC on localhost:6080 after bounded probes' \
-		'  test-e2e-two-drone  Placeholder: implemented by SCN-009' \
+		'  test-e2e-two-drone  Run bounded two-drone takeoff, intercept, and formation E2E' \
 		'  down           Stop and remove Compose services' \
 		'  logs           Follow Compose service logs and tee output to artifacts/test-logs' \
 		'  shell-ros2     Open a shell in the ros2 service image' \
@@ -114,8 +114,7 @@ up-two-drone-viz:
 	printf '%s\n' 'Two-drone visualization ready: http://localhost:6080/vnc.html?autoconnect=true&resize=scale'
 
 test-e2e-two-drone:
-	@printf '%s\n' 'test-e2e-two-drone is a placeholder; the real target is implemented by SCN-009' >&2
-	@exit 1
+	@bash scripts/run_scn009_e2e.sh
 
 down:
 	docker compose --profile baseline --profile mujoco --profile viz down

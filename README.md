@@ -174,8 +174,11 @@ make down
 The first command is the bounded automated startup/probe/cleanup check. The
 second leaves the verified stack running for manual viewing. RViz shows the
 mountain, both drones and odometry streams, route/formation markers, TF, and
-both front-camera panels. The end-to-end mission target remains a placeholder
-until SCN-009.
+both front-camera panels. Run the complete bounded mission with
+`CAMERA_ENABLED=1 make test-e2e-two-drone`. The SCN-009 test starts
+the headless stack, commands the chaser through takeoff and intercept, verifies
+the target route and terrain-relative altitude, requires ten continuous seconds
+of safe formation hold, reports minimum separation, and leaves the stack down.
 
 ## Configuration
 

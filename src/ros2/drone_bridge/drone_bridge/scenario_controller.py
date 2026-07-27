@@ -12,6 +12,8 @@ import time
 import numpy as np
 import yaml
 
+from .formation_guidance import formation_command
+
 
 class MissionState(str, Enum):
     IDLE = "IDLE"
@@ -46,6 +48,8 @@ class Observation:
     chaser_xyz: tuple[float, float, float] | None
     target_xyz: tuple[float, float, float] | None
     terrain_height_m: float | None
+    target_yaw_rad: float = 0.0
+    target_velocity_xyz: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 @dataclass(frozen=True)
@@ -128,7 +132,10 @@ class MissionController:
                     self._transition(MissionState.INTERCEPT, now)
             return Action(self.state)
 
-        error, velocity = self._guidance(chaser, target)
+        error, velocity = self._guidance(
+            chaser, target, observation.target_yaw_rad,
+            observation.target_velocity_xyz,
+        )
         if error is not None and error <= self.config.formation_threshold_m:
             if self.state == MissionState.INTERCEPT:
                 self.hold_started_s = now
@@ -141,16 +148,15 @@ class MissionController:
             self._transition(MissionState.INTERCEPT, now)
         return Action(self.state, velocity_xyz=velocity, formation_error_m=error)
 
-    def _guidance(self, chaser, target):
+    def _guidance(self, chaser, target, target_yaw_rad=0.0, target_velocity_xyz=(0.0, 0.0, 0.0)):
         if chaser is None or target is None:
             return None, None
-        desired = tuple(target[i] + self.config.formation_offset_m[i] for i in range(3))
-        delta = tuple(desired[i] - chaser[i] for i in range(3))
-        error = math.dist(chaser, desired)
-        if error <= 1e-9:
-            return error, (0.0, 0.0, 0.0)
-        speed = min(self.config.max_speed_mps, error)
-        return error, tuple(speed * component / error for component in delta)
+        result = formation_command(
+            chaser, target, target_yaw_rad, self.config.formation_offset_m,
+            self.config.max_speed_mps,
+            target_velocity_xyz=target_velocity_xyz,
+        )
+        return result.error_m, result.velocity_xyz
 
     def _transition(self, state: MissionState, now_s: float) -> None:
         self.state = state
@@ -214,6 +220,8 @@ def main() -> None:  # pragma: no cover - exercised in Docker live check.
             self.core = MissionController(config)
             self.chaser = None
             self.target = None
+            self.target_yaw_rad = 0.0
+            self.target_velocity = (0.0, 0.0, 0.0)
             self.healthy = False
             self.armed = False
             self.last_state = None
@@ -245,6 +253,15 @@ def main() -> None:  # pragma: no cover - exercised in Docker live check.
                     self.chaser = value
                 else:
                     self.target = value
+                    q = message.pose.pose.orientation
+                    self.target_yaw_rad = math.atan2(
+                        2.0 * (q.w * q.z + q.x * q.y),
+                        1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+                    )
+                    v = message.twist.twist.linear
+                    velocity = (float(v.x), float(v.y), float(v.z))
+                    if all(math.isfinite(component) for component in velocity):
+                        self.target_velocity = velocity
 
         def on_heartbeat(self, message):
             try:
@@ -261,7 +278,10 @@ def main() -> None:  # pragma: no cover - exercised in Docker live check.
 
         def tick(self):
             terrain = _terrain_height(heights, size_m, *self.chaser[:2]) if self.chaser else None
-            action = self.core.tick(Observation(time.monotonic(), self.healthy, self.armed, self.chaser, self.target, terrain))
+            action = self.core.tick(Observation(
+                time.monotonic(), self.healthy, self.armed, self.chaser,
+                self.target, terrain, self.target_yaw_rad, self.target_velocity,
+            ))
             if action.state != self.last_state:
                 self.get_logger().info(f"scenario state -> {action.state.value}" + (f": {action.abort_reason}" if action.abort_reason else ""))
                 self.publish_state()
