@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import math
 import os
 import time
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 
 DEFAULT_CAMERA_NAME = "front_cam"
@@ -16,6 +16,15 @@ DEFAULT_CAMERA_INFO_TOPIC = "/sim/camera/front/camera_info"
 DEFAULT_CAMERA_WIDTH = 640
 DEFAULT_CAMERA_HEIGHT = 480
 DEFAULT_CAMERA_FPS = 10.0
+
+TARGET_CAMERA_NAME = "target_front_cam"
+CHASER_CAMERA_NAME = "chaser_front_cam"
+TARGET_CAMERA_FRAME = "target/front_camera"
+CHASER_CAMERA_FRAME = "chaser/front_camera"
+TARGET_IMAGE_TOPIC = "/sim/target/camera/front/image_raw"
+TARGET_CAMERA_INFO_TOPIC = "/sim/target/camera/front/camera_info"
+CHASER_IMAGE_TOPIC = "/sim/chaser/camera/front/image_raw"
+CHASER_CAMERA_INFO_TOPIC = "/sim/chaser/camera/front/camera_info"
 
 
 @dataclass(frozen=True)
@@ -68,6 +77,46 @@ class CameraIntrinsics:
     fy: float
     cx: float
     cy: float
+
+
+def camera_configs_for_scenario(
+    scenario_name: str,
+    *,
+    camera_rate_hz: float | None = None,
+    values: Mapping[str, str] | None = None,
+) -> tuple[CameraConfig, ...]:
+    """Resolve the legacy or two-drone camera contract from one env switch."""
+    source = os.environ if values is None else values
+    legacy = CameraConfig.from_mapping(source)
+    if not legacy.enabled:
+        return ()
+    if scenario_name != "mountain_two_drones":
+        return (legacy,)
+    if camera_rate_hz is None or camera_rate_hz <= 0.0:
+        raise ValueError("two-drone camera rate must be positive")
+
+    common = {
+        "enabled": True,
+        "width": legacy.width,
+        "height": legacy.height,
+        "fps": camera_rate_hz,
+    }
+    return (
+        CameraConfig(
+            camera_name=TARGET_CAMERA_NAME,
+            frame_id=TARGET_CAMERA_FRAME,
+            image_topic=TARGET_IMAGE_TOPIC,
+            camera_info_topic=TARGET_CAMERA_INFO_TOPIC,
+            **common,
+        ),
+        CameraConfig(
+            camera_name=CHASER_CAMERA_NAME,
+            frame_id=CHASER_CAMERA_FRAME,
+            image_topic=CHASER_IMAGE_TOPIC,
+            camera_info_topic=CHASER_CAMERA_INFO_TOPIC,
+            **common,
+        ),
+    )
 
 
 def ros_image_pixels(pixels: Any) -> Any:
@@ -299,3 +348,27 @@ class SimCameraPublisher:
             0.0,
         ]
         return info
+
+
+class SimCameraPublishers:
+    """Thin multi-camera coordinator around the existing publisher."""
+
+    def __init__(self, quad: Any, configs: Iterable[CameraConfig]) -> None:
+        self._publishers = tuple(
+            SimCameraPublisher(quad, config) for config in configs
+        )
+
+    def close(self) -> None:
+        # The first publisher owns rclpy; close it last.
+        for publisher in reversed(self._publishers):
+            publisher.close()
+
+    def publish(self) -> None:
+        for publisher in self._publishers:
+            publisher.publish()
+
+    def maybe_publish(self, now_monotonic_s: float | None = None) -> bool:
+        published = False
+        for publisher in self._publishers:
+            published = publisher.maybe_publish(now_monotonic_s) or published
+        return published

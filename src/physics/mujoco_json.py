@@ -22,7 +22,7 @@ from src.physics.ardupilot_json_stub import (
 )
 from src.physics.frame_conventions import ardupilot_state_from_quad_state
 from src.physics.mujoco_quad import DEFAULT_MODEL_PATH, MuJoCoQuad
-from src.physics.ros_camera import CameraConfig, SimCameraPublisher
+from src.physics.ros_camera import SimCameraPublishers, camera_configs_for_scenario
 from src.physics.ros_visualization import SimVisualizationPublisher
 from src.physics.scenario_config import heading_quaternion_wxyz
 from src.physics.scenarios import (
@@ -262,9 +262,16 @@ def serve(
         two_drone_config=scenario.two_drone_config,
         terrain=target_terrain,
     )
-    camera_config = CameraConfig.from_env()
+    camera_configs = camera_configs_for_scenario(
+        scenario.name,
+        camera_rate_hz=(
+            scenario.two_drone_config.visualization.camera_rate_hz
+            if scenario.two_drone_config is not None
+            else None
+        ),
+    )
     camera_publisher = (
-        SimCameraPublisher(quad, camera_config) if camera_config.enabled else None
+        SimCameraPublishers(quad, camera_configs) if camera_configs else None
     )
     ros_visualization.publish(quad.state(), target_state=target_state)
     if camera_publisher is not None:
