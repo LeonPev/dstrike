@@ -43,6 +43,7 @@ active multi-agent collision avoidance
 ```
 
 `SCN-010` is an optional later dual-ArduPilot SITL extension. Do not start it until `SCN-000` through `SCN-009` pass.
+`SCN-011` adds target-flight behavior parity to that optional profile. Do not start it until `SCN-010` routing passes.
 
 ## Repository gate before SCN-000
 
@@ -252,6 +253,9 @@ Collision and separation policy:
 ```text
 up-two-drone-viz       placeholder in SCN-000, real implementation in SCN-007
 test-e2e-two-drone     placeholder in SCN-000, real implementation in SCN-009
+up-dual-sitl           introduced in SCN-010, extended with moving-target readiness in SCN-011
+test-dual-sitl         SCN-010 routing and identity check
+test-dual-sitl-target  SCN-011 actual target-flight behavior check
 ```
 
 `generate-map`, `test-map`, and `up-map-viz` remain owned by the `MAP-*` plan. Do not reassign them here.
@@ -1180,6 +1184,102 @@ PASS: SCN-010 optional dual-ArduPilot SITL setup works with separate vehicle ide
 
 ---
 
+## SCN-011 — Add dual-SITL target route behavior parity
+
+**Codex task**
+
+Make the optional ArduPilot-controlled target follow the configured target route without changing the default scripted-target MVP.
+
+Files:
+
+```text
+compose.yaml
+Makefile
+README.md
+config/dual_sitl_chaser.parm
+config/dual_sitl_target.parm
+src/physics/multi_vehicle_json.py
+src/physics/two_drone_world.py
+src/ros2/drone_bridge/drone_bridge/target_route_controller.py
+src/ros2/drone_bridge/launch/dual_sitl.launch.py
+src/ros2/drone_bridge/setup.py
+scripts/dual_sitl_target_probe.py
+scripts/run_scn011_target_check.sh
+tests/test_dual_sitl_routing.py
+tests/test_dual_sitl_target_route.py
+```
+
+Behavior and safety contract:
+
+- Keep `DUAL_SITL=0` behavior unchanged: the default target remains scripted, kinematic, deterministic, and non-contacting.
+- In dual-SITL mode, start the target at the configured sky pose and use this lifecycle:
+
+```text
+WAIT_HEALTH -> ARM -> STABILIZE -> ROUTE
+WAIT_HEALTH | ARM | STABILIZE | ROUTE -> ABORT on bounded timeout, health loss, non-finite telemetry, geofence violation, unsafe terrain clearance, or failed release
+```
+
+- Hold the dynamic target at its configured sky pose until target SITL is healthy, GUIDED, armed, and has received a bounded `0.5 m` takeoff activation to enter active flight. Release it into flight exactly once through an explicit simulation-only physics handoff, let ArduPilot's accepted takeoff own the first `0.75 s` of motor spool-up, then begin route velocity commands; never expose the physics handoff as a real-hardware command.
+- Require at least `2.0 s` of continuous `STABILIZE` readiness before release: x/y error `<= 0.25 m`, AGL error `<= 0.75 m`, and actual speed `<= 0.25 m/s`. The Docker dual-SITL implementation uses an `8.0 s` stable interval so the pinned target's accepted takeoff can deterministically reach flight-ready motor output before handoff.
+- Consume namespaced target telemetry and command only the target ArduPilot adapter through `/target/drone/heartbeat`, `/target/drone/odom`, `/target/drone/arm`, `/target/drone/takeoff_alt_m`, and `/target/drone/cmd_vel`. Do not command motors directly.
+- Pin both Docker-only dual-SITL instances to `SIM_RATE_HZ=250` and `SCHED_LOOP_RATE=100`. This keeps the external-physics request load sustainable on Docker Desktop while retaining ArduPilot's gyro-rate pre-arm check with a `180 Hz` minimum; it does not affect the default SITL or any real-hardware adapter.
+- Use the existing `target_drone` config as the source of truth: the same start, straight XY segment, speed, terrain-relative AGL, heading convention, and `ping_pong` behavior.
+- Treat `TargetMotion.state_at()` as a desired-route reference only. Actual dual-SITL motion comes from ArduPilot and MuJoCo and is measured from `/sim/target/odom`; do not write scripted mocap poses after release.
+- Dynamic endpoint reversal is not an instantaneous kinematic flip. Use the initial `8.0 s` live-readiness observation as the bounded route-activation window; after it and outside a bounded turnaround window, require cross-track error `<= 0.50 m`, 2-D horizontal velocity error `<= 0.50 m/s`, AGL error `<= 0.75 m`, and heading error `<= 5 degrees`. At an endpoint, allow at most `3.0 m` along-track overshoot and `10.0 s` to reverse direction and settle back within the straight-leg thresholds.
+- Dampen the dynamic yaw reversal with a `45 degree/s` cap, `0.6` proportional gain, and `1 degree` command deadband so the target settles without chasing estimator noise or ringing outside the heading bound.
+- Keep the target collision-filtered/non-contacting. Active collision avoidance remains out of scope, and the existing separation assertions remain authoritative.
+- Publish the current target lifecycle state on `/target/route/state` as `std_msgs/String`, immediately on change and with transient-local durability or periodic republishing so a late subscriber receives it within `2.0 s`. The route clock begins only after the simulation-only release and the target continues ping-pong flight until cleanup.
+- Full chaser mission execution in dual-SITL mode is out of scope for this ticket. `up-dual-sitl` may show a stationary chaser; do not claim SCN-009 dual-SITL mission parity.
+- Extend `make up-dual-sitl` so it returns successfully only after SCN-010 routing and SCN-011 moving-target readiness checks pass; it then leaves the stack running for manual viewing.
+- Add `make test-dual-sitl-target` as the bounded automated behavior check. It must clean up before and after success, failure, and interruption. Subordinate probes must not print their own `PASS:` lines; the wrapper owns exactly one final success line after cleanup.
+
+Automated acceptance must use actual ground truth and verify:
+
+```text
+target sysid 2 becomes healthy, GUIDED, and armed
+the pre-release sky pose remains within the configured AGL and XY tolerances
+all target geoms remain collision-filtered
+the target advances along the configured first leg at the configured speed
+cross-track, terrain-relative AGL, heading, geofence, and clearance stay within contract
+at least one configured endpoint reversal satisfies the dynamic turnaround bounds
+the target resumes the opposite straight leg after reversal
+the default scripted-target tests and SCN-009 E2E still pass with DUAL_SITL=0
+the stack is down before the final PASS line
+```
+
+**Manual testing guidance**
+
+```bash
+make test-dual-sitl-target
+CAMERA_ENABLED=1 make up-dual-sitl
+# open http://localhost:6080/vnc.html?autoconnect=true&resize=scale
+# confirm the target holds its sky pose during startup, then flies and reverses along the marked route
+# the chaser is not expected to run the SCN-009 mission in this ticket
+make down
+```
+
+Failure logs to inspect: `docker compose logs sitl-target physics ros2`, target lifecycle transitions, release diagnostics, GUIDED/arm status, and the actual route/AGL/turnaround metrics.
+
+**Definition of Done**
+
+```bash
+docker compose run --rm ros2 pytest -q tests/test_dual_sitl_routing.py tests/test_dual_sitl_target_route.py
+make test-dual-sitl
+make test-dual-sitl-target
+DUAL_SITL=0 CAMERA_ENABLED=1 make test-e2e-two-drone
+SCENARIO=landing_pad make test-e2e
+make test-map
+make down
+```
+
+Done when all commands exit `0`, the manual browser check confirms sustained target motion, the default scripted path is unchanged, the stack is down, and `make test-dual-sitl-target` prints exactly one `PASS:` line as its final line:
+
+```text
+PASS: SCN-011 dual-SITL target follows the configured terrain-parallel ping-pong route
+```
+
+---
+
 ## Final command sequence after MAP-006
 
 Run tickets in order:
@@ -1197,6 +1297,13 @@ SCN-008
 SCN-009
 ```
 
+Optional dual-SITL sequence:
+
+```text
+SCN-010
+SCN-011
+```
+
 Regression and demo workflow after implementation:
 
 ```bash
@@ -1205,6 +1312,12 @@ make test-map
 CAMERA_ENABLED=1 make test-e2e-two-drone
 CAMERA_ENABLED=1 make up-two-drone-viz
 # open http://localhost:6080/vnc.html?autoconnect=true&resize=scale
+make down
+
+# optional dual-SITL target behavior after SCN-011
+make test-dual-sitl-target
+CAMERA_ENABLED=1 make up-dual-sitl
+# open the same local noVNC URL and inspect actual target flight
 make down
 ```
 
@@ -1216,4 +1329,6 @@ SCN-004 proves the target sky drone flies the required straight terrain-parallel
 SCN-006 proves both drone camera perspectives publish.
 SCN-007 proves the full scenario is visible in RViz2/noVNC.
 SCN-009 proves the complete takeoff, intercept, and formation behavior.
+SCN-010 proves optional dual-SITL identity and routing isolation.
+SCN-011 proves the optional ArduPilot target follows the configured route; it does not prove full dual-SITL chaser mission parity.
 ```

@@ -1,6 +1,8 @@
 from pathlib import Path
 import sys
 
+import mujoco
+import numpy as np
 import pytest
 
 from src.physics.multi_vehicle_json import DUAL_SITL_CHANNELS, SharedMuJoCoWorld, validate_channels
@@ -43,6 +45,55 @@ def test_dual_world_has_two_dynamic_free_bodies():
     assert world.state("chaser").position.shape == (3,)
 
 
+def test_target_is_held_at_sky_pose_until_flight_release():
+    world = SharedMuJoCoWorld()
+    zero_thrust = (0.0, 0.0, 0.0, 0.0)
+    initial = world.state("target")
+
+    world.step({"target": zero_thrust, "chaser": zero_thrust}, substeps=250)
+
+    held = world.state("target")
+    assert held.time > initial.time
+    assert not world.target_flight_released
+    np.testing.assert_allclose(held.position, initial.position, atol=1e-9)
+    np.testing.assert_allclose(held.velocity, (0.0, 0.0, 0.0), atol=1e-9)
+    np.testing.assert_allclose(
+        held.body_acceleration,
+        (0.0, 0.0, abs(float(world.model.opt.gravity[2]))),
+        atol=1e-9,
+    )
+
+
+def test_target_release_is_one_way_and_permits_physical_fall():
+    world = SharedMuJoCoWorld()
+    zero_thrust = (0.0, 0.0, 0.0, 0.0)
+    initial_z = float(world.state("target").position[2])
+
+    world.release_target_flight()
+    world.release_target_flight()
+    world.step({"target": zero_thrust, "chaser": zero_thrust}, substeps=100)
+
+    released = world.state("target")
+    assert world.target_flight_released
+    assert released.position[2] < initial_z - 0.01
+    assert released.velocity[2] < 0.0
+
+
+def test_dynamic_target_geometries_remain_non_contacting():
+    world = SharedMuJoCoWorld()
+    target_body = mujoco.mj_name2id(
+        world.model,
+        mujoco.mjtObj.mjOBJ_BODY,
+        "target",
+    )
+    target_geometries = np.flatnonzero(world.model.geom_bodyid == target_body)
+
+    assert target_body >= 0
+    assert target_geometries.size > 0
+    assert np.all(world.model.geom_contype[target_geometries] == 0)
+    assert np.all(world.model.geom_conaffinity[target_geometries] == 0)
+
+
 def test_dual_world_camera_contract_uses_scenario_rate_when_enabled():
     world = SharedMuJoCoWorld()
     rate = world.scenario.two_drone_config.visualization.camera_rate_hz
@@ -60,5 +111,18 @@ def test_compose_and_param_files_pin_distinct_vehicle_identity_contract():
     assert 'profiles: ["dual-sitl"]' in compose
     assert '--sim-port-out=9003' in compose
     assert '--sim-port-out=9002' in compose
-    assert (ROOT / "config/dual_sitl_target.parm").read_text().splitlines()[0] == "SYSID_THISMAV 2"
-    assert (ROOT / "config/dual_sitl_chaser.parm").read_text().splitlines()[0] == "SYSID_THISMAV 1"
+    for filename, sysid in (
+        ("dual_sitl_target.parm", 2),
+        ("dual_sitl_chaser.parm", 1),
+    ):
+        parameters = dict(
+            line.split(maxsplit=1)
+            for line in (ROOT / "config" / filename).read_text().splitlines()
+            if line.strip()
+        )
+        assert parameters["SYSID_THISMAV"] == str(sysid)
+        assert parameters["SIM_RATE_HZ"] == "250"
+        assert parameters["SCHED_LOOP_RATE"] == "100"
+        assert float(parameters["SIM_RATE_HZ"]) >= (
+            1.8 * float(parameters["SCHED_LOOP_RATE"])
+        )

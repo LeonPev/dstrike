@@ -34,6 +34,7 @@ from src.physics.two_drone_world import chaser_launch_surface_z
 
 
 DEFAULT_CHANNELS = {"target": 9003, "chaser": 9002}
+TARGET_FLIGHT_RELEASE_TOPIC = "/sim/target/flight_release"
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,56 @@ class VehicleChannel:
     port: int
     sysid: int
     body_name: str
+
+
+class TargetFlightReleaseGate:
+    """Latch the transient-local ROS release command for the target vehicle."""
+
+    def __init__(self) -> None:
+        import rclpy
+        from rclpy.qos import (
+            QoSDurabilityPolicy,
+            QoSHistoryPolicy,
+            QoSProfile,
+            QoSReliabilityPolicy,
+        )
+        from std_msgs.msg import Bool
+
+        self._rclpy = rclpy
+        self._owns_rclpy = not rclpy.ok()
+        if self._owns_rclpy:
+            rclpy.init(args=None)
+        self._released = False
+        self._node = rclpy.create_node("target_flight_release_gate")
+        release_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self._subscription = self._node.create_subscription(
+            Bool,
+            TARGET_FLIGHT_RELEASE_TOPIC,
+            self._on_release,
+            release_qos,
+        )
+
+    @property
+    def released(self) -> bool:
+        return self._released
+
+    def _on_release(self, message: object) -> None:
+        if bool(getattr(message, "data", False)):
+            self._released = True
+
+    def poll(self) -> bool:
+        self._rclpy.spin_once(self._node, timeout_sec=0.0)
+        return self._released
+
+    def close(self) -> None:
+        self._node.destroy_node()
+        if self._owns_rclpy and self._rclpy.ok():
+            self._rclpy.shutdown()
 
 
 DUAL_SITL_CHANNELS = (
@@ -86,6 +137,7 @@ class SharedMuJoCoWorld:
         }
         self.rotor_site_ids = tuple(self._id(mujoco.mjtObj.mjOBJ_SITE, f"chaser_rotor_{name}") for name in ("front_left", "front_right", "rear_left", "rear_right"))
         self.body_id = self._body_ids["chaser"]
+        self._target_flight_released = False
         self.reset()
 
     @property
@@ -126,6 +178,14 @@ class SharedMuJoCoWorld:
     def mass(self, role: str) -> float:
         return float(self.model.body_mass[self._body_ids[role]])
 
+    @property
+    def target_flight_released(self) -> bool:
+        return self._target_flight_released
+
+    def release_target_flight(self) -> None:
+        """Irreversibly hand the dynamic target body to its SITL PWM stream."""
+        self._target_flight_released = True
+
     def state(self, role: str = "chaser") -> QuadState:
         body = self._body_ids[role]
         joint = self._joint_ids[role]
@@ -140,10 +200,27 @@ class SharedMuJoCoWorld:
             self.data.qfrc_applied[:] = 0.0
             mujoco.mj_forward(self.model, self.data)
             for role, thrusts in thrust_by_role.items():
+                if role == "target" and not self._target_flight_released:
+                    continue
                 body = self._body_ids[role]
                 axis = self.data.xmat[body].reshape(3, 3) @ np.array((0.0, 0.0, 1.0))
                 for rotor, site, thrust in zip(ARDUPILOT_QUAD_X_ROTORS, self._site_ids[role], thrusts):
                     mujoco.mj_applyFT(self.model, self.data, axis * thrust, axis * rotor.yaw_torque_sign * thrust * DEFAULT_YAW_MOMENT_ARM_M, self.data.site_xpos[site], body, self.data.qfrc_applied)
+            if not self._target_flight_released:
+                target_body = self._body_ids["target"]
+                support_force = -self.mass("target") * np.asarray(
+                    self.model.opt.gravity,
+                    dtype=float,
+                )
+                mujoco.mj_applyFT(
+                    self.model,
+                    self.data,
+                    support_force,
+                    np.zeros(3, dtype=float),
+                    self.data.xipos[target_body],
+                    target_body,
+                    self.data.qfrc_applied,
+                )
             mujoco.mj_step(self.model, self.data)
 
 
@@ -161,6 +238,7 @@ def serve(host: str = "0.0.0.0", stdout: TextIO = sys.stdout, stderr: TextIO = s
         camera_rate_hz=world.scenario.two_drone_config.visualization.camera_rate_hz,
     )
     cameras = SimCameraPublishers(world, camera_configs) if camera_configs else None
+    release_gate = TargetFlightReleaseGate()
     try:
         for channel in channels:
             udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -169,6 +247,8 @@ def serve(host: str = "0.0.0.0", stdout: TextIO = sys.stdout, stderr: TextIO = s
             sockets[udp] = channel
             print(f"dual_sitl channel role={channel.role} sysid={channel.sysid} udp://{host}:{channel.port} body={channel.body_name}", file=stdout, flush=True)
         while True:
+            if release_gate.poll():
+                world.release_target_flight()
             for key, _ in selector.select(timeout=1.0):
                 udp = key.fileobj
                 channel = sockets[udp]
@@ -192,6 +272,7 @@ def serve(host: str = "0.0.0.0", stdout: TextIO = sys.stdout, stderr: TextIO = s
     finally:
         for udp in sockets:
             udp.close()
+        release_gate.close()
         if cameras is not None:
             cameras.close()
         visualization.close()

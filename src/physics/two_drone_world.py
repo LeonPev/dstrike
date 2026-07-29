@@ -64,7 +64,10 @@ def compose_two_drone_world(
         if child.tag in {"geom", "site", "camera"}:
             base_body.remove(child)
     _append_quad_visual(base_body, "chaser", contacting=True)
-    _append_quad_visual(target_body, "target", contacting=dynamic_target)
+    # The target remains collision-filtered in both the scripted MVP and the
+    # optional dynamic dual-SITL profile.  Dynamic control changes its joint,
+    # not its deterministic non-contacting safety contract.
+    _append_quad_visual(target_body, "target", contacting=False)
     if dynamic_target:
         target_body.attrib.pop("mocap", None)
         ET.SubElement(target_body, "freejoint", {"name": "target_free_joint"})

@@ -5,7 +5,7 @@ DURATION ?= 10
 LOG_FLAGS ?= -f
 TOPIC ?= /drone/odom
 
-.PHONY: help preflight build up up-baseline baseline-heartbeat up-mujoco probe-ros-visualization probe-camera-image topic-list topic-hz bag-record artifact-dirs test-json-stub test-mujoco-quad test-frame-conventions test-ros-frame-conventions up-viz generate-map up-map-viz test-map up-two-drone-viz test-e2e-two-drone up-dual-sitl test-dual-sitl down logs shell-ros2 shell-sitl shell-physics test test-e2e
+.PHONY: help preflight build up up-baseline baseline-heartbeat up-mujoco probe-ros-visualization probe-camera-image topic-list topic-hz bag-record artifact-dirs test-json-stub test-mujoco-quad test-frame-conventions test-ros-frame-conventions up-viz generate-map up-map-viz test-map up-two-drone-viz test-e2e-two-drone up-dual-sitl test-dual-sitl test-dual-sitl-target down logs shell-ros2 shell-sitl shell-physics test test-e2e
 
 help:
 	@printf '%s\n' \
@@ -34,6 +34,7 @@ help:
 		'  test-e2e-two-drone  Run bounded two-drone takeoff, intercept, and formation E2E' \
 		'  up-dual-sitl   Start optional two-ArduPilot SITL stack' \
 		'  test-dual-sitl Run bounded SCN-010 dual-SITL routing probe' \
+		'  test-dual-sitl-target  Run bounded SCN-011 dual-SITL target route probe' \
 		'  down           Stop and remove Compose services' \
 		'  logs           Follow Compose service logs and tee output to artifacts/test-logs' \
 		'  shell-ros2     Open a shell in the ros2 service image' \
@@ -122,12 +123,16 @@ up-dual-sitl:
 	@status=0; \
 	$(MAKE) down || status=$$?; \
 	if [ $$status -eq 0 ]; then SCENARIO=mountain_two_drones DUAL_SITL=1 CAMERA_ENABLED="$${CAMERA_ENABLED:-1}" RVIZ_CONFIG=/workspace/config/two_drone_mountain.rviz docker compose --profile dual-sitl --profile viz up -d --force-recreate physics ros2 sitl-target sitl-chaser viz || status=$$?; fi; \
+	if [ $$status -eq 0 ]; then docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash; source /workspace/install/setup.bash; cd /workspace; python3 scripts/dual_sitl_target_probe.py --timeout-s 120 --readiness-only' || status=$$?; fi; \
 	if [ $$status -eq 0 ]; then docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash; source /workspace/install/setup.bash; cd /workspace; python3 scripts/dual_sitl_probe.py --timeout-s 120' || status=$$?; fi; \
 	if [ $$status -ne 0 ]; then printf '%s\n' 'ERROR: SCN-010 dual-SITL visualization startup/probe failed' >&2; docker compose logs --tail 250 --no-color sitl-target sitl-chaser physics ros2 viz >&2 || true; $(MAKE) down >/dev/null 2>&1 || true; exit $$status; fi; \
 	printf '%s\n' 'Dual-SITL visualization ready: http://localhost:6080/vnc.html?autoconnect=true&resize=scale'
 
 test-dual-sitl:
 	@bash scripts/run_dual_sitl_check.sh
+
+test-dual-sitl-target:
+	@bash scripts/run_scn011_target_check.sh
 
 down:
 	docker compose --profile baseline --profile mujoco --profile viz --profile dual-sitl down --remove-orphans

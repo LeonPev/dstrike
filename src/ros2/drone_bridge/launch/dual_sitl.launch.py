@@ -8,7 +8,8 @@ from drone_bridge.multi_vehicle_bridge import validate_routes
 
 def generate_launch_description():
     nodes = []
-    for route in validate_routes():
+    routes = validate_routes()
+    for route in routes:
         nodes.append(Node(
             package="drone_bridge",
             executable="mavlink_bridge",
@@ -22,4 +23,11 @@ def generate_launch_description():
                 "child_frame_id": route.child_frame_id,
             }],
         ))
+    target_route = next(route for route in routes if route.role == "target")
+    nodes.append(Node(
+        package="drone_bridge",
+        executable="target_route_controller",
+        namespace=target_route.namespace,
+        name="target_route_controller",
+    ))
     return LaunchDescription(nodes)

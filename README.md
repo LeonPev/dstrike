@@ -160,7 +160,7 @@ container.
 
 ## Two-drone mountain scenario
 
-The planned target-and-chaser simulation is specified in the
+The target-and-chaser simulation is specified in the
 [Two-drone mountain scenario plan](plans/two_drone_mountain_scenario_plan.md).
 The Docker-only RViz2/noVNC view is available with:
 
@@ -179,6 +179,31 @@ both front-camera panels. Run the complete bounded mission with
 the headless stack, commands the chaser through takeoff and intercept, verifies
 the target route and terrain-relative altitude, requires ten continuous seconds
 of safe formation hold, reports minimum separation, and leaves the stack down.
+
+### Optional dual-SITL profile
+
+SCN-010 adds separate target and chaser ArduPilot instances, vehicle IDs, JSON
+physics channels, and ROS namespaces. Its bounded routing check leaves the stack
+down; the visualization command leaves it running for local browser review:
+
+```bash
+make test-dual-sitl
+CAMERA_ENABLED=1 make up-dual-sitl
+# open http://localhost:6080/vnc.html?autoconnect=true&resize=scale
+make down
+```
+
+SCN-011 adds actual ArduPilot-controlled target motion along the configured
+terrain-parallel ping-pong route. The bounded flight/reversal check is:
+
+```bash
+make test-dual-sitl-target
+```
+
+`CAMERA_ENABLED=1 make up-dual-sitl` now waits for both the SCN-010 identity
+check and SCN-011 moving-target readiness check before leaving the browser-viewable
+stack running. The default scripted-target workflow remains unchanged, and the
+full chaser intercept mission is still outside the dual-SITL profile.
 
 ## Configuration
 

@@ -25,6 +25,7 @@ setup(
         "console_scripts": [
             "mavlink_bridge = drone_bridge.mavlink_bridge:main",
             "scenario_controller = drone_bridge.scenario_controller:main",
+            "target_route_controller = drone_bridge.target_route_controller:main",
         ],
     },
 )
