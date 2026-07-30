@@ -30,9 +30,9 @@ help:
 		'  generate-map   Generate and verify deterministic mountain map assets in Docker' \
 		'  up-map-viz     Generate the mountain map and start RViz2/noVNC on localhost:6080' \
 		'  test-map       Run bounded mountain map checks and landing-pad regressions' \
-		'  up-two-drone-viz  Start two-drone RViz2/noVNC on localhost:6080 after bounded probes' \
-		'  test-e2e-two-drone  Run bounded two-drone takeoff, intercept, and formation E2E' \
-		'  up-dual-sitl   Start optional two-ArduPilot SITL stack' \
+		'  up-two-drone-viz  Start scripted-target/chaser RViz2; chase waits for /scenario/start' \
+		'  test-e2e-two-drone  Run bounded default-profile chaser takeoff/intercept/formation E2E' \
+		'  up-dual-sitl   Start dual-SITL target-route viewer; chaser mission is not started' \
 		'  test-dual-sitl Run bounded SCN-010 dual-SITL routing probe' \
 		'  test-dual-sitl-target  Run bounded SCN-011 dual-SITL target route probe' \
 		'  down           Stop and remove Compose services' \
@@ -108,7 +108,7 @@ up-two-drone-viz:
 	@status=0; \
 	if [ "$${SCENARIO:-mountain_two_drones}" != mountain_two_drones ]; then printf '%s\n' 'ERROR: up-two-drone-viz requires SCENARIO=mountain_two_drones' >&2; exit 2; fi; \
 	$(MAKE) down || status=$$?; \
-	if [ $$status -eq 0 ]; then SCENARIO=mountain_two_drones CAMERA_ENABLED="$${CAMERA_ENABLED:-1}" RVIZ_CONFIG=/workspace/config/two_drone_mountain.rviz docker compose --profile mujoco --profile viz up -d physics ros2 sitl-json viz || status=$$?; fi; \
+	if [ $$status -eq 0 ]; then SCENARIO=mountain_two_drones DUAL_SITL=0 CAMERA_ENABLED="$${CAMERA_ENABLED:-1}" RVIZ_CONFIG=/workspace/config/two_drone_mountain.rviz docker compose --profile mujoco --profile viz up -d physics ros2 sitl-json viz || status=$$?; fi; \
 	attempt=0; \
 	while [ $$status -eq 0 ] && [ $$attempt -lt 60 ]; do running="$$(docker compose --profile mujoco --profile viz ps --status running --services)"; printf '%s\n' "$$running" | grep -qx physics && printf '%s\n' "$$running" | grep -qx ros2 && printf '%s\n' "$$running" | grep -qx sitl-json && printf '%s\n' "$$running" | grep -qx viz && break; attempt=$$((attempt + 1)); sleep 2; done; \
 	if [ $$status -eq 0 ]; then running="$$(docker compose --profile mujoco --profile viz ps --status running --services)"; printf '%s\n' "$$running" | grep -qx physics && printf '%s\n' "$$running" | grep -qx ros2 && printf '%s\n' "$$running" | grep -qx sitl-json && printf '%s\n' "$$running" | grep -qx viz || status=1; fi; \
@@ -126,7 +126,7 @@ up-dual-sitl:
 	if [ $$status -eq 0 ]; then docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash; source /workspace/install/setup.bash; cd /workspace; python3 scripts/dual_sitl_target_probe.py --timeout-s 120 --readiness-only' || status=$$?; fi; \
 	if [ $$status -eq 0 ]; then docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash; source /workspace/install/setup.bash; cd /workspace; python3 scripts/dual_sitl_probe.py --timeout-s 120' || status=$$?; fi; \
 	if [ $$status -ne 0 ]; then printf '%s\n' 'ERROR: SCN-010 dual-SITL visualization startup/probe failed' >&2; docker compose logs --tail 250 --no-color sitl-target sitl-chaser physics ros2 viz >&2 || true; $(MAKE) down >/dev/null 2>&1 || true; exit $$status; fi; \
-	printf '%s\n' 'Dual-SITL visualization ready: http://localhost:6080/vnc.html?autoconnect=true&resize=scale'
+	printf '%s\n' 'Dual-SITL target route ready; chaser mission is not running (/scenario/start has no subscriber): http://localhost:6080/vnc.html?autoconnect=true&resize=scale'
 
 test-dual-sitl:
 	@bash scripts/run_dual_sitl_check.sh

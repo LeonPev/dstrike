@@ -22,6 +22,7 @@ trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 
 export SCENARIO=mountain_two_drones
+export DUAL_SITL=0
 export CAMERA_ENABLED="${CAMERA_ENABLED:-1}"
 make down
 docker compose --profile mujoco up -d physics ros2 sitl-json

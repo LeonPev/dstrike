@@ -4,7 +4,7 @@ Repository location: `plans/two_drone_mountain_scenario_plan.md`
 
 Goal: add a deterministic two-drone scenario on top of the Dockerized ArduPilot + MuJoCo + ROS 2 + RViz2/noVNC stack, using the completed mountain terrain map.
 
-Plan-specific outcome: `CAMERA_ENABLED=1 make test-e2e-two-drone`, followed by `CAMERA_ENABLED=1 make up-two-drone-viz`, proves and displays one scripted target drone flying a straight terrain-parallel route while one ArduPilot-controlled chaser drone takes off, intercepts it, and holds formation beside it.
+Plan-specific outcome: `DUAL_SITL=0 CAMERA_ENABLED=1 make test-e2e-two-drone`, followed by `DUAL_SITL=0 CAMERA_ENABLED=1 make up-two-drone-viz`, proves and displays one scripted target drone flying a straight terrain-parallel route while one ArduPilot-controlled chaser drone takes off, intercepts it, and holds formation beside it.
 
 ## Status and scope
 
@@ -157,7 +157,8 @@ ArduPilot JSON boundary: NED, converted at the existing boundary
 heading_deg: 0° = +X, positive counter-clockwise around +Z, normalized modulo 360
 ```
 
-Required public topics for `SCENARIO=mountain_two_drones`:
+Required public topics for the default `SCENARIO=mountain_two_drones`,
+`DUAL_SITL=0` profile:
 
 ```text
 /drone/odom                                  nav_msgs/Odometry, chaser alias/backward compatibility
@@ -834,7 +835,7 @@ Image: /sim/chaser/camera/front/image_raw
 
 Target behavior:
 
-- `make up-two-drone-viz` starts the stack detached with `SCENARIO=mountain_two_drones`.
+- `make up-two-drone-viz` starts the stack detached with `SCENARIO=mountain_two_drones` and forces the default `DUAL_SITL=0` profile.
 - It uses `config/two_drone_mountain.rviz`.
 - It respects `CAMERA_ENABLED`; examples should use `CAMERA_ENABLED=1`.
 - noVNC remains bound to localhost only.
@@ -850,7 +851,7 @@ Commands to run:
 ```bash
 CAMERA_ENABLED=1 SCENARIO=mountain_two_drones bash scripts/run_scn007_viz_check.sh
 # for extended manual viewing after the automated check passes:
-CAMERA_ENABLED=1 make up-two-drone-viz
+DUAL_SITL=0 CAMERA_ENABLED=1 make up-two-drone-viz
 # open http://localhost:6080/vnc.html?autoconnect=true&resize=scale
 make down
 ```
@@ -867,7 +868,7 @@ Acceptance sequence:
 
 ```bash
 CAMERA_ENABLED=1 SCENARIO=mountain_two_drones bash scripts/run_scn007_viz_check.sh
-CAMERA_ENABLED=1 make up-two-drone-viz
+DUAL_SITL=0 CAMERA_ENABLED=1 make up-two-drone-viz
 # open http://localhost:6080/vnc.html?autoconnect=true&resize=scale
 # confirm RViz2 shows mountain terrain, target drone, chaser drone, route/formation markers, and two image panels
 make down
@@ -1090,7 +1091,7 @@ Commands to run:
 
 ```bash
 docker compose run --rm ros2 pytest -q tests/test_formation_guidance.py tests/test_scenario_controller.py
-CAMERA_ENABLED=1 make test-e2e-two-drone
+DUAL_SITL=0 CAMERA_ENABLED=1 make test-e2e-two-drone
 SCENARIO=landing_pad make test-e2e
 make test-map
 make down
@@ -1106,7 +1107,7 @@ Failure logs to inspect: E2E timeline, `/scenario/state` history, formation/sepa
 
 ```bash
 docker compose run --rm ros2 pytest -q tests/test_formation_guidance.py tests/test_scenario_controller.py
-CAMERA_ENABLED=1 make test-e2e-two-drone
+DUAL_SITL=0 CAMERA_ENABLED=1 make test-e2e-two-drone
 SCENARIO=landing_pad make test-e2e
 make test-map
 make down
@@ -1229,7 +1230,7 @@ WAIT_HEALTH | ARM | STABILIZE | ROUTE -> ABORT on bounded timeout, health loss, 
 - Dampen the dynamic yaw reversal with a `45 degree/s` cap, `0.6` proportional gain, and `1 degree` command deadband so the target settles without chasing estimator noise or ringing outside the heading bound.
 - Keep the target collision-filtered/non-contacting. Active collision avoidance remains out of scope, and the existing separation assertions remain authoritative.
 - Publish the current target lifecycle state on `/target/route/state` as `std_msgs/String`, immediately on change and with transient-local durability or periodic republishing so a late subscriber receives it within `2.0 s`. The route clock begins only after the simulation-only release and the target continues ping-pong flight until cleanup.
-- Full chaser mission execution in dual-SITL mode is out of scope for this ticket. `up-dual-sitl` may show a stationary chaser; do not claim SCN-009 dual-SITL mission parity.
+- Full chaser mission execution in dual-SITL mode is out of scope for this ticket. `dual_sitl.launch.py` intentionally omits `scenario_controller`: the target route auto-starts, `/scenario/start` has no subscriber in `DUAL_SITL=1`, and the chaser remains stationary. Do not claim SCN-009 dual-SITL mission parity.
 - Extend `make up-dual-sitl` so it returns successfully only after SCN-010 routing and SCN-011 moving-target readiness checks pass; it then leaves the stack running for manual viewing.
 - Add `make test-dual-sitl-target` as the bounded automated behavior check. It must clean up before and after success, failure, and interruption. Subordinate probes must not print their own `PASS:` lines; the wrapper owns exactly one final success line after cleanup.
 
@@ -1254,7 +1255,18 @@ make test-dual-sitl-target
 CAMERA_ENABLED=1 make up-dual-sitl
 # open http://localhost:6080/vnc.html?autoconnect=true&resize=scale
 # confirm the target holds its sky pose during startup, then flies and reverses along the marked route
-# the chaser is not expected to run the SCN-009 mission in this ticket
+# the chaser is not expected to run the SCN-009 mission in this ticket;
+# this profile has no /scenario/start subscriber
+make down
+```
+
+To run the supported chaser mission, use the non-dual profile and start its
+scenario controller explicitly:
+
+```bash
+DUAL_SITL=0 CAMERA_ENABLED=1 make up-two-drone-viz
+docker compose exec -T ros2 bash -lc \
+  "source /opt/ros/humble/setup.bash; source /workspace/install/setup.bash; ros2 topic pub --once /scenario/start std_msgs/msg/Bool '{data: true}'"
 make down
 ```
 
@@ -1309,8 +1321,8 @@ Regression and demo workflow after implementation:
 ```bash
 SCENARIO=landing_pad make test-e2e
 make test-map
-CAMERA_ENABLED=1 make test-e2e-two-drone
-CAMERA_ENABLED=1 make up-two-drone-viz
+DUAL_SITL=0 CAMERA_ENABLED=1 make test-e2e-two-drone
+DUAL_SITL=0 CAMERA_ENABLED=1 make up-two-drone-viz
 # open http://localhost:6080/vnc.html?autoconnect=true&resize=scale
 make down
 

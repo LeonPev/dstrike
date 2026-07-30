@@ -166,7 +166,7 @@ The Docker-only RViz2/noVNC view is available with:
 
 ```bash
 CAMERA_ENABLED=1 SCENARIO=mountain_two_drones bash scripts/run_scn007_viz_check.sh
-CAMERA_ENABLED=1 make up-two-drone-viz
+DUAL_SITL=0 CAMERA_ENABLED=1 make up-two-drone-viz
 # open http://localhost:6080/vnc.html?autoconnect=true&resize=scale
 make down
 ```
@@ -174,11 +174,30 @@ make down
 The first command is the bounded automated startup/probe/cleanup check. The
 second leaves the verified stack running for manual viewing. RViz shows the
 mountain, both drones and odometry streams, route/formation markers, TF, and
-both front-camera panels. Run the complete bounded mission with
-`CAMERA_ENABLED=1 make test-e2e-two-drone`. The SCN-009 test starts
-the headless stack, commands the chaser through takeoff and intercept, verifies
-the target route and terrain-relative altitude, requires ten continuous seconds
-of safe formation hold, reports minimum separation, and leaves the stack down.
+both front-camera panels. This profile uses one ArduPilot-controlled chaser and
+the deterministic scripted target. After `up-two-drone-viz` prints its ready
+message, start the manual chase with:
+
+```bash
+docker compose exec -T ros2 bash -lc \
+  "source /opt/ros/humble/setup.bash; source /workspace/install/setup.bash; ros2 topic pub --once /scenario/start std_msgs/msg/Bool '{data: true}'"
+```
+
+The chaser progresses through health checks, arming, takeoff, intercept, and
+formation hold. The mountain scenario deliberately co-locates the pad and
+chaser at `x=-120 m, y=-25 m`; unlike the basic `landing_pad` scenario, they do
+not start at the world origin.
+
+Run the complete bounded mission with:
+
+```bash
+DUAL_SITL=0 CAMERA_ENABLED=1 make test-e2e-two-drone
+```
+
+The SCN-009 test publishes the start command itself, commands the chaser through
+takeoff and intercept, verifies the target route and terrain-relative altitude,
+requires ten continuous seconds of safe formation hold, reports minimum
+separation, and leaves the stack down.
 
 ### Optional dual-SITL profile
 
@@ -202,8 +221,13 @@ make test-dual-sitl-target
 
 `CAMERA_ENABLED=1 make up-dual-sitl` now waits for both the SCN-010 identity
 check and SCN-011 moving-target readiness check before leaving the browser-viewable
-stack running. The default scripted-target workflow remains unchanged, and the
-full chaser intercept mission is still outside the dual-SITL profile.
+stack running. This profile does not launch the chaser mission controller and
+has no `/scenario/start` subscriber: the ArduPilot chaser intentionally remains
+on its pad while the ArduPilot target flies. Publishing `/scenario/start` here
+will wait indefinitely for a subscription. Use `up-two-drone-viz` and the
+manual start command above for the supported chase. The default scripted-target
+workflow remains unchanged, and full chaser intercept is still outside the
+dual-SITL profile.
 
 ## Configuration
 
