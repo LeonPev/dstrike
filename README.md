@@ -1,298 +1,181 @@
-# dstrike
+# dsriker
 
-Docker Desktop for Mac drone simulation stack. It runs ArduPilot SITL, MuJoCo
-physics, a ROS 2 MAVLink bridge, and RViz2/noVNC inside Docker.
+Docker-only two-drone mountain simulation for macOS. The main workflow runs a
+scripted target along a terrain-following route while an ArduPilot-controlled
+chaser takes off, intercepts it, and holds formation. MuJoCo, ROS 2, ArduPilot
+SITL, RViz2, and noVNC all run inside Docker.
 
-No host ROS 2, ArduPilot, MuJoCo, RViz2, Python package, or alternate container
-runtime install is required.
+No host ROS 2, Python packages, ArduPilot, MuJoCo, or RViz installation is
+required. This repository is simulation-only and does not command real
+hardware.
+
+The detailed behavior and safety contract is in the
+[two-drone mountain scenario plan](plans/two_drone_mountain_scenario_plan.md).
 
 ## Requirements
 
-- macOS with Docker Desktop for Mac
-- Docker Engine and Docker Compose plugin bundled with Docker Desktop
-- Make, a shell, and a browser
+- macOS with Docker Desktop
+- Docker Engine and the Docker Compose plugin supplied by Docker Desktop
+- Make, Git, a shell, and a browser
 
-## Quick Start
+## Setup
 
 ```bash
-cp .env.example .env
+test -f .env || cp .env.example .env
+make preflight
 make build
-make up-viz
 ```
 
-Open the browser viewer:
+## Simulation modes
+
+| Mode | Target | Chaser | Start behavior |
+| --- | --- | --- | --- |
+| Main chase (`DUAL_SITL=0`) | Deterministic scripted route | ArduPilot SITL | Target moves immediately; chaser waits for `/scenario/start` |
+| Dual-SITL target route | ArduPilot SITL | ArduPilot SITL, stationary | Target route starts automatically; no `/scenario/start` subscriber |
+
+The Make targets below force `SCENARIO=mountain_two_drones` and the appropriate
+profile.
+
+## Run the target-and-chaser mission
+
+Start the browser-viewable stack:
+
+```bash
+SCENARIO=mountain_two_drones DUAL_SITL=0 CAMERA_ENABLED=1 make up-two-drone-viz
+```
+
+Wait for the command to print the ready message, then open:
 
 ```text
 http://localhost:6080/vnc.html?autoconnect=true&resize=scale
 ```
 
-Stop everything:
-
-```bash
-make down
-```
-
-## Smoke Test
-
-Run the full headless takeoff test:
-
-```bash
-make test-e2e
-```
-
-Expected success line:
-
-```text
-E2E PASS: heartbeat, arm, takeoff, odom altitude threshold reached
-```
-
-`make test-e2e` resets the Compose stack, starts the MuJoCo/SITL/ROS 2 services,
-runs the takeoff test, and shuts the stack down. Run `make up-viz` again when
-you want the browser viewer.
-
-## What Runs
-
-| Service | Purpose | Ports |
-| --- | --- | --- |
-| `sitl-json` | ArduCopter SITL in JSON external-physics mode | Internal UDP to `physics:9002` and `ros2:14550` |
-| `physics` | MuJoCo physics, scenario markers, ground-truth odometry, camera publishing | Internal UDP `9002` |
-| `ros2` | ROS 2 MAVLink bridge and command topics | Internal UDP `14550` |
-| `viz` | RViz2 desktop streamed through noVNC | Host `127.0.0.1:6080` to container `6080/tcp` |
-
-Only noVNC is published to the Mac host by default.
-
-## Expected Topics
-
-```text
-/drone/heartbeat
-/drone/odom
-/sim/ground_truth/odom
-/tf
-/sim/scenario_markers
-/sim/drone_markers
-/sim/terrain_markers
-/sim/nature_markers
-/sim/camera/front/image_raw
-/sim/camera/front/camera_info
-```
-
-Check the live topic set:
-
-```bash
-make topic-list
-```
-
-## Common Commands
-
-```bash
-make help
-make preflight
-make build
-make up-viz
-make test-e2e
-make topic-list
-make topic-hz TOPIC=/drone/odom
-make bag-record DURATION=10
-make logs LOG_FLAGS=
-make down
-```
-
-Artifacts are written under:
-
-```text
-artifacts/ardupilot/
-artifacts/rosbags/
-artifacts/test-logs/
-```
-
-## Mountain terrain map
-
-The mountain terrain work is specified in the
-[Mountain terrain map plan](plans/mountain_terrain_map_plan.md). The map viewer uses
-the committed deterministic heightfield, publishes the decimated surface plus
-all generated trees and rocks with transient-local ROS 2 durability, and opens
-an RViz view scaled for the 300 m map.
-
-Generate the assets, run the automated marker check, or open the browser view:
-
-```bash
-make generate-map  # MAP-002
-docker compose run --rm physics bash -lc "cd /workspace && SCENARIO=mountain_map python3 scripts/mujoco_terrain_collision_probe.py"  # MAP-003
-SCENARIO=mountain_map bash scripts/run_map005_marker_check.sh
-make up-map-viz
-make test-map      # MAP-006 bounded full workflow
-```
-
-`make test-map` validates Compose, deterministic generation, both scenario
-loads, MuJoCo terrain collision, safe startup/reset pose, marker content, the
-landing-pad E2E flight, and the required regression suites. It tears down the
-Compose stack before starting and on success, failure, or interruption. After a
-failure, inspect the command output (and `docker compose logs` when a live check
-failed), fix the cause, and rerun `make test-map`; no manual cleanup is required.
-The landing-pad E2E check tears down visualization, so start `make up-map-viz`
-again for the manual RViz signoff.
-
-For manual MAP-005 signoff, open
-`http://localhost:6080/vnc.html?autoconnect=true&resize=scale`, then confirm
-RViz shows the green terrain surface, tree and rock markers, scenario markers,
-the drone inside its yellow map-scale locator ring, and the live `Front Camera`
-panel. The mountain spawn includes a finite yellow launch pad so the drone rests
-level instead of balancing directly on a heightfield triangle.
-Two yellow circles near the spawn are expected: the stationary 3 m-diameter
-launch pad and the 5 m-diameter locator attached to the moving drone.
-
-To verify real flight while watching RViz, leave the browser open and run:
-
-```bash
-make down
-make up-map-viz
-docker compose exec -T ros2 bash -lc 'source /opt/ros/humble/setup.bash && python3 scripts/mountain_vertical_flight_probe.py'
-make down
-```
-
-The bounded probe waits for ArduPilot local-position readiness, then arms,
-takes off relative to the launch height, holds for 20 seconds, commands a
-4-second ascent and descent, lands on the pad, and disarms. It prints
-`PASS: mountain vertical takeoff, hover, up/down, and landing verified` only
-after every phase passes. All flight thresholds and timeouts are available via
-`python3 scripts/mountain_vertical_flight_probe.py --help` inside the `ros2`
-container.
-
-## Two-drone mountain scenario
-
-The target-and-chaser simulation is specified in the
-[Two-drone mountain scenario plan](plans/two_drone_mountain_scenario_plan.md).
-The Docker-only RViz2/noVNC view is available with:
-
-```bash
-CAMERA_ENABLED=1 SCENARIO=mountain_two_drones bash scripts/run_scn007_viz_check.sh
-DUAL_SITL=0 CAMERA_ENABLED=1 make up-two-drone-viz
-# open http://localhost:6080/vnc.html?autoconnect=true&resize=scale
-make down
-```
-
-The first command is the bounded automated startup/probe/cleanup check. The
-second leaves the verified stack running for manual viewing. RViz shows the
-mountain, both drones and odometry streams, route/formation markers, TF, and
-both front-camera panels. This profile uses one ArduPilot-controlled chaser and
-the deterministic scripted target. After `up-two-drone-viz` prints its ready
-message, start the manual chase with:
+Start the chase from another terminal:
 
 ```bash
 docker compose exec -T ros2 bash -lc \
   "source /opt/ros/humble/setup.bash; source /workspace/install/setup.bash; ros2 topic pub --once /scenario/start std_msgs/msg/Bool '{data: true}'"
 ```
 
-The chaser progresses through health checks, arming, takeoff, intercept, and
-formation hold. The mountain scenario deliberately co-locates the pad and
-chaser at `x=-120 m, y=-25 m`; unlike the basic `landing_pad` scenario, they do
-not start at the world origin.
+The target is already following its configured terrain-parallel ping-pong
+route. After the start command, the chaser progresses through health checks,
+arming, takeoff, intercept, and formation hold. The launch pad and chaser begin
+together at `x=-120 m, y=-25 m`.
 
-Run the complete bounded mission with:
+Stop and remove the stack when finished:
+
+```bash
+make down
+```
+
+## Verify the complete chase
+
+Run the bounded end-to-end mission:
 
 ```bash
 DUAL_SITL=0 CAMERA_ENABLED=1 make test-e2e-two-drone
 ```
 
-The SCN-009 test publishes the start command itself, commands the chaser through
-takeoff and intercept, verifies the target route and terrain-relative altitude,
-requires ten continuous seconds of safe formation hold, reports minimum
-separation, and leaves the stack down.
+The check starts the stack, triggers the mission, verifies target motion,
+chaser takeoff and intercept, terrain clearance, safe separation, and ten
+continuous seconds of formation hold. It then shuts the stack down.
 
-### Optional dual-SITL profile
+Expected final line:
 
-SCN-010 adds separate target and chaser ArduPilot instances, vehicle IDs, JSON
-physics channels, and ROS namespaces. Its bounded routing check leaves the stack
-down; the visualization command leaves it running for local browser review:
-
-```bash
-make test-dual-sitl
-CAMERA_ENABLED=1 make up-dual-sitl
-# open http://localhost:6080/vnc.html?autoconnect=true&resize=scale
-make down
+```text
+PASS: SCN-009 target straight terrain-parallel flight, chaser takeoff, intercept, and formation hold verified
 ```
 
-SCN-011 adds actual ArduPilot-controlled target motion along the configured
-terrain-parallel ping-pong route. The bounded flight/reversal check is:
+## Dual-SITL target flight
+
+The optional dual-SITL profile runs separate ArduPilot instances for the target
+and chaser. In the current implementation, only the target route controller is
+started: the target flies automatically and the chaser intentionally remains
+on its pad.
+
+This profile has no `/scenario/start` subscriber. Publishing the chase start
+command while `up-dual-sitl` is running will wait indefinitely and will not
+move the chaser.
+
+Run the full target flight and endpoint-reversal check:
 
 ```bash
 make test-dual-sitl-target
 ```
 
-`CAMERA_ENABLED=1 make up-dual-sitl` now waits for both the SCN-010 identity
-check and SCN-011 moving-target readiness check before leaving the browser-viewable
-stack running. This profile does not launch the chaser mission controller and
-has no `/scenario/start` subscriber: the ArduPilot chaser intentionally remains
-on its pad while the ArduPilot target flies. Publishing `/scenario/start` here
-will wait indefinitely for a subscription. Use `up-two-drone-viz` and the
-manual start command above for the supported chase. The default scripted-target
-workflow remains unchanged, and full chaser intercept is still outside the
-dual-SITL profile.
+Start the browser-viewable dual-SITL target route:
 
-## Configuration
+```bash
+CAMERA_ENABLED=1 make up-dual-sitl
+```
 
-Edit `.env` after copying `.env.example`.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `NOVNC_PORT` | `6080` | Browser viewer port on `127.0.0.1` |
-| `VNC_GEOMETRY` | `1440x900x24` | Virtual desktop size matched to the saved RViz layout |
-| `SCENARIO` | `landing_pad` | Scenario: `empty_world`, `landing_pad`, `obstacle_course`, `mountain_map`, or `mountain_two_drones` |
-| `CAMERA_ENABLED` | `true` | Publish the MuJoCo front camera topics |
-| `CAMERA_WIDTH` / `CAMERA_HEIGHT` | `640` / `480` | Camera image size |
-| `CAMERA_FPS` | `10` | Camera publish rate |
-| `ROS_DOMAIN_ID` | `42` | ROS 2 domain used inside containers |
-| `ARDUPILOT_REF` | pinned SHA in `.env.example` | ArduPilot commit baked into the image |
-
-Restart after config changes:
+Open the same noVNC URL, confirm the target holds position during startup and
+then follows and reverses along the marked route, and clean up with:
 
 ```bash
 make down
-make up-viz
 ```
+
+Expected automated-check final line:
+
+```text
+PASS: SCN-011 dual-SITL target follows the configured terrain-parallel ping-pong route
+```
+
+## Configuration
+
+Mission geometry, route behavior, formation offset, timeouts, clearance, and
+separation limits are defined in:
+
+```text
+config/scenarios/mountain_two_drones.yaml
+```
+
+Common environment settings are defined in `.env`:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NOVNC_PORT` | `6080` | Browser viewer port bound to localhost |
+| `VNC_GEOMETRY` | `1440x900x24` | RViz desktop size |
+| `CAMERA_ENABLED` | `true` | Enable both simulated front cameras |
+| `CAMERA_WIDTH` / `CAMERA_HEIGHT` | `640` / `480` | Camera image size |
+| `CAMERA_FPS` | `10` | Camera publication rate |
+| `ROS_DOMAIN_ID` | `42` | ROS 2 domain inside Docker |
+| `ARDUPILOT_REF` | Pinned in `.env.example` | ArduPilot revision built into the image |
 
 ## Troubleshooting
 
-Browser does not open:
+If the chase publisher repeatedly prints `Waiting for at least 1 matching
+subscription(s)...`, the dual-SITL profile is running. Stop it with Ctrl-C,
+then run the `up-two-drone-viz` command from the main workflow above.
+
+Inspect the running services and focused logs with:
 
 ```bash
 docker compose ps
-docker compose logs viz
+docker compose logs --tail 250 sitl-json physics ros2 viz
 ```
 
-RViz2 opens but has no data:
+For dual-SITL target problems, use:
 
 ```bash
-make topic-list
-docker compose logs ros2 physics viz
+docker compose logs --tail 300 sitl-target sitl-chaser physics ros2 viz
+make test-dual-sitl-target
 ```
 
-No heartbeat or takeoff fails:
+Mission state and vehicle odometry can be inspected inside the ROS 2 container:
 
 ```bash
-docker compose logs sitl-json ros2
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && ros2 topic echo /drone/heartbeat --once'
+docker compose exec -T ros2 bash -lc \
+  "source /opt/ros/humble/setup.bash; source /workspace/install/setup.bash; ros2 topic echo /scenario/state"
+
+docker compose exec -T ros2 bash -lc \
+  "source /opt/ros/humble/setup.bash; source /workspace/install/setup.bash; ros2 topic echo --once /sim/chaser/ground_truth/odom"
 ```
 
-No JSON physics frames:
+Flight logs and test diagnostics are written under `artifacts/`. Always finish
+manual investigation with:
 
 ```bash
-docker compose logs sitl-json physics
+make down
 ```
-
-Camera topic missing:
-
-```bash
-grep -E "CAMERA_ENABLED|CAMERA_TOPIC|CAMERA_NAME" .env
-docker compose logs physics
-docker compose exec ros2 bash -lc 'source /workspace/install/setup.bash && python3 scripts/image_probe.py /sim/camera/front/image_raw'
-```
-
-Docker feels too slow or unstable:
-
-```bash
-make preflight
-docker stats
-```
-
-Increase Docker Desktop CPU or memory limits, then restart the stack.
