@@ -1,0 +1,12 @@
+.env
+
+__pycache__/
+*.py[cod]
+
+build/
+install/
+log/
+/MUJOCO_LOG.TXT
+
+artifacts/*
+!artifacts/.gitkeep

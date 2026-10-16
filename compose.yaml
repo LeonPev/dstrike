@@ -1,0 +1,217 @@
+name: ${COMPOSE_PROJECT_NAME:-dsriker}
+
+x-sim-common: &sim-common
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    args:
+      ARDUPILOT_REF: ${ARDUPILOT_REF:-92b0cd788ec29406f26c6f9c31d5ceedbd1cc538}
+  image: ${SIM_IMAGE:-dsriker-sim:dev}
+  working_dir: /workspace
+  volumes:
+    - type: bind
+      source: .
+      target: /workspace
+    - type: bind
+      source: ./artifacts
+      target: /workspace/artifacts
+  environment:
+    ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+    ARDUPILOT_REF: ${ARDUPILOT_REF:-92b0cd788ec29406f26c6f9c31d5ceedbd1cc538}
+    ARTIFACTS_DIR: /workspace/artifacts
+    SCENARIO: ${SCENARIO:-landing_pad}
+    DUAL_SITL: ${DUAL_SITL:-0}
+    SIM_RESET_AFTER_FRAMES: ${SIM_RESET_AFTER_FRAMES:-0}
+    CAMERA_ENABLED: ${CAMERA_ENABLED:-true}
+    CAMERA_NAME: ${CAMERA_NAME:-front_cam}
+    CAMERA_FRAME: ${CAMERA_FRAME:-front_cam}
+    CAMERA_WIDTH: ${CAMERA_WIDTH:-640}
+    CAMERA_HEIGHT: ${CAMERA_HEIGHT:-480}
+    CAMERA_FPS: ${CAMERA_FPS:-10}
+    CAMERA_TOPIC: ${CAMERA_TOPIC:-/sim/camera/front/image_raw}
+    CAMERA_INFO_TOPIC: ${CAMERA_INFO_TOPIC:-/sim/camera/front/camera_info}
+    RVIZ_CONFIG: ${RVIZ_CONFIG:-/workspace/config/drone.rviz}
+    LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-1}
+  tty: true
+  stdin_open: true
+
+services:
+  sitl:
+    <<: *sim-common
+    command: ["bash", "-lc", "sleep infinity"]
+
+  physics:
+    <<: *sim-common
+    profiles: ["mujoco", "dual-sitl"]
+    init: true
+    expose:
+      - "9002/udp"
+      - "9003/udp"
+    command:
+      - bash
+      - -lc
+      - |
+        if [ "$${DUAL_SITL:-0}" = "1" ]; then
+          exec python3 -m src.physics.multi_vehicle_json
+        fi
+        exec python3 -m src.physics.mujoco_json
+
+  ros2:
+    <<: *sim-common
+    expose:
+      - "14550/udp"
+    command:
+      - bash
+      - -lc
+      - |
+        set -eo pipefail
+        source /opt/ros/humble/setup.bash
+        colcon build --symlink-install --packages-select drone_bridge
+        source /workspace/install/setup.bash
+        USE_SIM_STATE=false
+        NORMALIZED_SCENARIO="$${SCENARIO//-/_}"
+        ODOM_ARGS=()
+        if [ "$${NORMALIZED_SCENARIO}" = "mountain_two_drones" ]; then
+          USE_SIM_STATE=true
+          ODOM_ARGS+=(
+            -p odom_frame_id:=world
+            -p odom_alignment_topic:=/sim/chaser/ground_truth/odom
+          )
+        fi
+        if [ "$${DUAL_SITL:-0}" = "1" ]; then
+          exec ros2 launch drone_bridge dual_sitl.launch.py
+        fi
+        if [ "$${NORMALIZED_SCENARIO}" = "mountain_two_drones" ]; then
+          exec ros2 launch drone_bridge two_drone_scenario.launch.py
+        fi
+        exec ros2 run drone_bridge mavlink_bridge --ros-args -p connect:=udpin:0.0.0.0:14550 -p use_sim_state:="$${USE_SIM_STATE}" "$${ODOM_ARGS[@]}"
+
+  sitl-baseline:
+    <<: *sim-common
+    profiles: ["baseline"]
+    depends_on:
+      - ros2
+    init: true
+    user: ardupilot
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        export HOME=/home/ardupilot
+        export USER=ardupilot
+        cd /opt/ardupilot
+        ROS2_HOST=ros2
+        ROS2_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("ros2"))')"
+        test -n "$${ROS2_IP}"
+        echo "Starting baseline ArduCopter SITL with built-in physics"
+        echo "MAVProxy disabled via --no-mavproxy"
+        echo "Resolved $${ROS2_HOST} to $${ROS2_IP} for ArduPilot numeric IPv4"
+        echo "Explicit MAVLink route: --out=udp:$${ROS2_IP}:14550"
+        echo "Direct SITL serial0 route: --serial0=udpclient:$${ROS2_IP}:14550"
+        ARDUPILOT_ARTIFACT_DIR=/workspace/artifacts/ardupilot/sitl-baseline
+        mkdir -p "$${ARDUPILOT_ARTIFACT_DIR}"
+        echo "ArduPilot SITL artifacts: $${ARDUPILOT_ARTIFACT_DIR}"
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --use-dir="$${ARDUPILOT_ARTIFACT_DIR}" --out=udp:$${ROS2_IP}:14550 --sitl-instance-args=--serial0=udpclient:$${ROS2_IP}:14550
+
+  sitl-json:
+    <<: *sim-common
+    profiles: ["mujoco"]
+    depends_on:
+      - physics
+      - ros2
+    init: true
+    user: ardupilot
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        export HOME=/home/ardupilot
+        export USER=ardupilot
+        export SITL_RITW_TERMINAL=bash
+        cd /opt/ardupilot
+        PHYSICS_HOST=physics
+        PHYSICS_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("physics"))')"
+        ROS2_HOST=ros2
+        ROS2_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("ros2"))')"
+        test -n "$${PHYSICS_IP}"
+        test -n "$${ROS2_IP}"
+        echo "Starting ArduCopter SITL in JSON external-physics mode"
+        echo "JSON model target service: --model JSON:$${PHYSICS_HOST}"
+        echo "Resolved $${PHYSICS_HOST} to $${PHYSICS_IP} for ArduPilot numeric IPv4"
+        echo "Resolved $${ROS2_HOST} to $${ROS2_IP} for ArduPilot numeric IPv4"
+        echo "MAVProxy disabled via --no-mavproxy"
+        echo "ArduPilot child output inherited via SITL_RITW_TERMINAL=bash"
+        echo "ROS 2 MAVLink stream params: --add-param-file=/workspace/config/ros2_mavlink_streams.parm"
+        echo "Direct SITL serial0 UDP sink: --serial0=udpclient:$${ROS2_IP}:14550"
+        ARDUPILOT_ARTIFACT_DIR=/workspace/artifacts/ardupilot/sitl-json
+        mkdir -p "$${ARDUPILOT_ARTIFACT_DIR}"
+        echo "ArduPilot SITL artifacts: $${ARDUPILOT_ARTIFACT_DIR}"
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --use-dir="$${ARDUPILOT_ARTIFACT_DIR}" --model "JSON:$${PHYSICS_IP}" --add-param-file=/workspace/config/ros2_mavlink_streams.parm --sitl-instance-args=--serial0=udpclient:$${ROS2_IP}:14550
+
+  sitl-target:
+    <<: *sim-common
+    profiles: ["dual-sitl"]
+    depends_on: [physics, ros2]
+    init: true
+    user: ardupilot
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        export HOME=/home/ardupilot USER=ardupilot SITL_RITW_TERMINAL=bash
+        cd /opt/ardupilot
+        PHYSICS_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("physics"))')"
+        ROS2_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("ros2"))')"
+        ARTIFACT_DIR=/workspace/artifacts/ardupilot/sitl-target
+        mkdir -p "$${ARTIFACT_DIR}"
+        echo "dual_sitl role=target SYSID_THISMAV=2 physics_port=9003 mavlink_port=14551"
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --use-dir="$${ARTIFACT_DIR}" --model "JSON:$${PHYSICS_IP}" --add-param-file=/workspace/config/dual_sitl_target.parm --sitl-instance-args="--sim-port-out=9003 --serial0=udpclient:$${ROS2_IP}:14551"
+
+  sitl-chaser:
+    <<: *sim-common
+    profiles: ["dual-sitl"]
+    depends_on: [physics, ros2]
+    init: true
+    user: ardupilot
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        export HOME=/home/ardupilot USER=ardupilot SITL_RITW_TERMINAL=bash
+        cd /opt/ardupilot
+        PHYSICS_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("physics"))')"
+        ROS2_IP="$$(python3 -c 'import socket; print(socket.gethostbyname("ros2"))')"
+        ARTIFACT_DIR=/workspace/artifacts/ardupilot/sitl-chaser
+        mkdir -p "$${ARTIFACT_DIR}"
+        echo "dual_sitl role=chaser SYSID_THISMAV=1 physics_port=9002 mavlink_port=14550"
+        exec Tools/autotest/sim_vehicle.py -v ArduCopter -f quad --no-rebuild --no-mavproxy --use-dir="$${ARTIFACT_DIR}" --model "JSON:$${PHYSICS_IP}" --add-param-file=/workspace/config/dual_sitl_chaser.parm --sitl-instance-args="--sim-port-out=9002 --serial0=udpclient:$${ROS2_IP}:14550"
+
+  viz:
+    <<: *sim-common
+    profiles: ["viz"]
+    depends_on:
+      - ros2
+      - physics
+    ports:
+      - "127.0.0.1:${NOVNC_PORT:-6080}:6080"
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      SCENARIO: ${SCENARIO:-landing_pad}
+      CAMERA_ENABLED: ${CAMERA_ENABLED:-true}
+      RVIZ_CONFIG: ${RVIZ_CONFIG:-/workspace/config/drone.rviz}
+      VNC_GEOMETRY: ${VNC_GEOMETRY:-1440x900x24}
+      DISPLAY: ":1"
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    command: ["bash", "-lc", "scripts/start_rviz_novnc.sh"]
+
+  test:
+    <<: *sim-common
+    profiles: ["test"]
+    command:
+      - bash
+      - -lc
+      - test -f /workspace/README.md && printf 'scaffold-ok\n'

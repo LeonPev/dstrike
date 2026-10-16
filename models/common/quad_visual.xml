@@ -1,0 +1,32 @@
+<mujoco model="shared_quad_visual">
+  <!-- Loaded as a template by two_drone_world.py. Names and contact masks are
+       patched per vehicle before these children enter the composed model. -->
+  <worldbody>
+    <body name="quad_template">
+      <geom name="{prefix}_body" type="box" size="0.080 0.060 0.025"
+            material="body_dark" friction="1.0 0.005 0.0001"/>
+      <geom name="{prefix}_arm_x" type="capsule" fromto="-0.24 0 0 0.24 0 0"
+            size="0.010" material="arm_light" friction="1.0 0.005 0.0001"/>
+      <geom name="{prefix}_arm_y" type="capsule" fromto="0 -0.24 0 0 0.24 0"
+            size="0.010" material="arm_light" friction="1.0 0.005 0.0001"/>
+      <geom name="{prefix}_leg_front_left" type="capsule" fromto="0.10 0.10 -0.04 0.10 0.10 -0.27"
+            size="0.030" material="arm_light" friction="1.0 0.005 0.0001"/>
+      <geom name="{prefix}_leg_front_right" type="capsule" fromto="0.10 -0.10 -0.04 0.10 -0.10 -0.27"
+            size="0.030" material="arm_light" friction="1.0 0.005 0.0001"/>
+      <geom name="{prefix}_leg_rear_left" type="capsule" fromto="-0.10 0.10 -0.04 -0.10 0.10 -0.27"
+            size="0.030" material="arm_light" friction="1.0 0.005 0.0001"/>
+      <geom name="{prefix}_leg_rear_right" type="capsule" fromto="-0.10 -0.10 -0.04 -0.10 -0.10 -0.27"
+            size="0.030" material="arm_light" friction="1.0 0.005 0.0001"/>
+      <site name="{prefix}_rotor_front_left" pos="0.18 0.18 0.02"
+            type="sphere" size="0.025" material="rotor_blue"/>
+      <site name="{prefix}_rotor_front_right" pos="0.18 -0.18 0.02"
+            type="sphere" size="0.025" material="rotor_red"/>
+      <site name="{prefix}_rotor_rear_left" pos="-0.18 0.18 0.02"
+            type="sphere" size="0.025" material="rotor_red"/>
+      <site name="{prefix}_rotor_rear_right" pos="-0.18 -0.18 0.02"
+            type="sphere" size="0.025" material="rotor_blue"/>
+      <camera name="{prefix}_front_cam" mode="fixed" pos="0.24 0 0.10"
+              xyaxes="0 -1 0 0.207912 0 0.978148" fovy="80"/>
+    </body>
+  </worldbody>
+</mujoco>

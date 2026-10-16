@@ -1,0 +1,17 @@
+{
+  "checksums_sha256": {
+    "heightfield.bin": "e982870a6b490759a89422c6e7433fa25ec10581e3eceedc04f3c8c7ca3d3c28",
+    "heightfield_m.npy": "ac282bbee67431bebcfcbd5c2451fe74794b06a5203cd9f3c9d8e0075ab733f5",
+    "heightfield_norm.npy": "a77bf282991a1df6a7b8a6d68a5a88ce3ca80d7e5ef258007ba997865b863916",
+    "nature.json": "4fcec19c4ff267be9286d81627297d42dfedf9374635bff48a2f9549c5f609a3",
+    "terrain_preview.png": "8f45bd57d0da55c5677a8ce4e0be3637b7bfb58df86789f13342c501f164cff2"
+  },
+  "generator": "numpy.random.PCG64",
+  "max_height_m": 45.0,
+  "nature_seed": 11,
+  "resolution": 129,
+  "scenario": "mountain_map",
+  "schema_version": 1,
+  "size_m": 300.0,
+  "terrain_seed": 7
+}

@@ -1,0 +1,53 @@
+<mujoco model="minimal_quadrotor">
+  <compiler angle="radian" coordinate="local"/>
+
+  <option timestep="0.002" integrator="RK4" gravity="0 0 -9.80665"/>
+
+  <asset>
+    <material name="body_dark" rgba="0.12 0.15 0.18 1"/>
+    <material name="arm_light" rgba="0.65 0.70 0.74 1"/>
+    <material name="rotor_blue" rgba="0.08 0.35 0.85 1"/>
+    <material name="rotor_red" rgba="0.85 0.18 0.12 1"/>
+    <material name="ground_mat" rgba="0.18 0.22 0.24 1"/>
+    <material name="camera_target" rgba="0.95 0.75 0.10 1"/>
+  </asset>
+
+  <worldbody>
+    <light name="key" pos="0 -3 5" dir="0 1 -1" diffuse="0.8 0.8 0.8"/>
+    <geom name="visual_ground" type="plane" size="5 5 0.05"
+          material="ground_mat" contype="1" conaffinity="1"
+          friction="1.0 0.005 0.0001"/>
+    <geom name="visual_camera_target" type="box" pos="2.0 0 0.35"
+          size="0.18 0.18 0.35" material="camera_target"
+          contype="0" conaffinity="0"/>
+
+    <body name="base_link" pos="0 0 0">
+      <freejoint name="base_free_joint"/>
+      <inertial pos="0 0 0" mass="1.2" diaginertia="0.018 0.018 0.030"/>
+
+      <geom name="body" type="box" size="0.080 0.060 0.025"
+            material="body_dark" contype="1" conaffinity="1"
+            friction="1.0 0.005 0.0001"/>
+      <geom name="arm_x" type="capsule" fromto="-0.24 0 0 0.24 0 0"
+            size="0.010" material="arm_light" contype="1" conaffinity="1"
+            friction="1.0 0.005 0.0001"/>
+      <geom name="arm_y" type="capsule" fromto="0 -0.24 0 0 0.24 0"
+            size="0.010" material="arm_light" contype="1" conaffinity="1"
+            friction="1.0 0.005 0.0001"/>
+
+      <site name="rotor_front_left" pos="0.18 0.18 0.02"
+            type="sphere" size="0.025" material="rotor_blue"/>
+      <site name="rotor_front_right" pos="0.18 -0.18 0.02"
+            type="sphere" size="0.025" material="rotor_red"/>
+      <site name="rotor_rear_left" pos="-0.18 0.18 0.02"
+            type="sphere" size="0.025" material="rotor_red"/>
+      <site name="rotor_rear_right" pos="-0.18 -0.18 0.02"
+            type="sphere" size="0.025" material="rotor_blue"/>
+
+      <!-- Forward camera: +X heading, raised above the body and pitched 12
+           degrees down so both terrain and horizon remain useful in flight. -->
+      <camera name="front_cam" mode="fixed" pos="0.24 0 0.10"
+              xyaxes="0 -1 0 0.207912 0 0.978148" fovy="80"/>
+    </body>
+  </worldbody>
+</mujoco>
